@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UAI - Plantão da Alegria</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #fffbeb;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-12 font-sans selection:bg-red-200">
+
+    <!-- Cabeçalho Lúdico -->
+    <div class="bg-white p-5 text-center shadow-md">
+        <img src="UAI.jpg" alt="Logo UAI" class="mx-auto w-16 h-16 mb-2">
+        <p class="text-xs font-bold text-red-900 uppercase">Unidade de Alegria Intensiva</p>
+    </div>
+
+    <div class="max-w-md mx-auto px-4 mt-6">
+        
+        <!-- Bloco 1: Gestão de Palhaços (Adicionar/Importar) -->
+        <div class="bg-white rounded-2xl shadow-md p-4 mb-6 border-2 border-red-200">
+            <h2 class="text-base font-bold text-gray-800 mb-3 flex items-center gap-1">
+                👥 Integrantes da Unidade
+            </h2>
+            
+            <!-- Adicionar Rápido -->
+            <div class="flex gap-2 mb-4">
+                <input id="novo-nome" type="text" placeholder="Nome do Palhaço" class="flex-1 px-3 py-2 border rounded-xl text-sm focus:outline-red-400">
+                <label class="flex items-center gap-1 bg-gray-100 px-3 rounded-xl cursor-pointer text-xs font-semibold">
+                    <input id="novo-carro" type="checkbox"> 🚗
+                </label>
+                <button onclick="adicionarPalhaco()" class="bg-red-500 text-white font-bold px-4 py-2 rounded-xl text-sm active:scale-95 transition-transform">
+                    +
+                </button>
+            </div>
+
+            <!-- Importar/Exportar CSV (Abaixo das prioridades de gratuidade) -->
+            <div class="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+                <label class="bg-yellow-100 text-yellow-800 text-center py-2 px-3 rounded-xl text-xs font-bold cursor-pointer hover:bg-yellow-200 active:scale-95 transition-transform">
+                    📥 Importar CSV
+                    <input type="file" id="csv-file" accept=".csv" class="hidden" onchange="importarCSV(event)">
+                </label>
+                <button onclick="exportarCSV()" class="bg-gray-100 text-gray-700 py-2 px-3 rounded-xl text-xs font-bold active:scale-95 transition-transform">
+                    📤 Exportar CSV
+                </button>
+            </div>
+        </div>
+
+        <!-- Bloco 2: Lista de Seleção para o Dia -->
+        <div class="bg-white rounded-2xl shadow-md p-4 mb-6 border-2 border-yellow-300">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-base font-bold text-gray-800">
+                    🔴 Quem vai pro plantão hoje?
+                </h2>
+                <button onclick="marcarTodos(true)" class="text-xs text-red-500 font-semibold">Todos</button>
+            </div>
+            
+            <div id="lista-palhacos" class="space-y-2 max-h-64 overflow-y-auto pr-1">
+                <!-- Injetado por Javascript -->
+            </div>
+            
+            <div class="mt-4 text-xs text-gray-500 text-center font-semibold" id="contador">
+                Nenhum selecionado
+            </div>
+        </div>
+
+        <!-- Botão de Ação -->
+        <button onclick="gerarEscala()" class="w-full bg-red-500 hover:bg-red-600 active:scale-95 transition-transform text-white font-black py-4 rounded-2xl shadow-lg text-lg tracking-wider">
+            🚨 GERAR DUPLAS / TRIOS
+        </button>
+
+        <!-- Bloco 3: Exibição do Resultado -->
+        <div id="resultado" class="hidden mt-6 bg-white rounded-2xl shadow-lg p-5 border-4 border-emerald-400">
+            <h3 class="font-extrabold text-emerald-600 mb-3 text-center tracking-wider">🚨 ESCALA DE HOJE GERADA!</h3>
+            <div id="equipes-lista" class="space-y-3"></div>
+            
+            <button onclick="copiarWhatsApp()" class="mt-5 w-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 transition-transform text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                Copiar Escala p/ WhatsApp 📱
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        // Carrega do LocalStorage ou inicia com exemplo se estiver vazio
+        let database = JSON.parse(localStorage.getItem('uai_voluntarios')) || [
+            { id: 1, nome: "Dr. Pipoca", carro: true },
+            { id: 2, nome: "Dra. Jujuba", carro: false },
+            { id: 3, nome: "Dr. Risadinha", carro: true },
+            { id: 4, nome: "Dra. Florzinha", carro: false },
+            { id: 5, nome: "Dr. Espirro", carro: false },
+            { id: 6, nome: "Dra. Suspiro", carro: true },
+            { id: 7, nome: "Dr. Cambalhota", carro: false }
+        ];
+
+        function salvarDatabase() {
+            localStorage.setItem('uai_voluntarios', JSON.stringify(database));
+            renderizarLista();
+        }
+
+        function adicionarPalhaco() {
+            const nomeInput = document.getElementById('novo-nome');
+            const carroInput = document.getElementById('novo-carro');
+            
+            if (!nomeInput.value.trim()) return;
+
+            const novo = {
+                id: Date.now(),
+                nome: nomeInput.value.trim(),
+                carro: carroInput.checked
+            };
+
+            database.push(novo);
+            nomeInput.value = '';
+            carroInput.checked = false;
+            salvarDatabase();
+        }
+
+        function removerPalhaco(id) {
+            if (confirm("Deseja remover este integrante?")) {
+                database = database.filter(p => p.id !== id);
+                salvarDatabase();
+            }
+        }
+
+        function marcarTodos(status) {
+            document.querySelectorAll('#lista-palhacos input[type="checkbox"]').forEach(cb => {
+                cb.checked = status;
+            });
+            atualizarContador();
+        }
+
+        function atualizarContador() {
+            const selecionados = document.querySelectorAll('#lista-palhacos input:checked').length;
+            document.getElementById('contador').innerText = `${selecionados} palhaço(s) selecionado(s) para o dia`;
+        }
+
+        function renderizarLista() {
+            const container = document.getElementById('lista-palhacos');
+            container.innerHTML = '';
+            
+            // Ordenar por nome para facilitar busca
+            database.sort((a,b) => a.nome.localeCompare(b.nome));
+
+            database.forEach(p => {
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors";
+                div.innerHTML = `
+                    <label class="flex items-center cursor-pointer flex-1">
+                        <input type="checkbox" value="${p.id}" onchange="atualizarContador()" class="w-5 h-5 text-red-500 rounded-lg mr-3 focus:ring-0">
+                        <span class="font-bold text-gray-700 text-sm">
+                            ${p.nome} ${p.carro ? '🚗' : ''}
+                        </span>
+                    </label>
+                    <button onclick="removerPalhaco(${p.id})" class="text-gray-300 hover:text-red-500 px-2 text-sm font-bold">×</button>
+                `;
+                container.appendChild(div);
+            });
+            atualizarContador();
+        }
+
+        function gerarEscala() {
+            const selecionadosIds = Array.from(document.querySelectorAll('#lista-palhacos input:checked')).map(el => parseInt(el.value));
+            let presentes = database.filter(p => selecionadosIds.includes(p.id));
+            
+            if (presentes.length < 2) {
+                alert("Selecione pelo menos 2 palhaços para formar uma equipe!");
+                return;
+            }
+
+            // Embaralha para ser randômico
+            presentes.sort(() => Math.random() - 0.5);
+
+            const motoristas = presentes.filter(p => p.carro);
+            const passageiros = presentes.filter(p => !p.carro);
+            
+            let equipes = [];
+            
+            // 1ª Etapa: Formar as bases dos grupos com quem tem carro
+            while (motoristas.length > 0 && (motoristas.length + passageiros.length) >= 2) {
+                let equipe = [motoristas.shift()];
+                
+                if (passageiros.length > 0) {
+                    equipe.push(passageiros.shift());
+                } else if (motoristas.length > 0) {
+                    equipe.push(motoristas.shift());
+                }
+                equipes.push(equipe);
+            }
+
+            // Jogar quem sobrou de motoristas e passageiros no mesmo pote
+            let restantes = [...motoristas, ...passageiros];
+
+            // 2ª Etapa: Formar o restante das duplas comuns
+            while (restantes.length >= 2) {
+                equipes.push([restantes.shift(), restantes.shift()]);
+            }
+
+            // 3ª Etapa: Tratar a sobra (Se sobrar 1 pessoa, vira um Trio adicionado à última equipe)
+            if (restantes.length === 1) {
+                if (equipes.length > 0) {
+                    equipes[equipes.length - 1].push(restantes.shift());
+                } else {
+                    equipes.push([restantes.shift()]);
+                }
+            }
+
+            exibirResultado(equipes);
+        }
+
+        function exibirResultado(equipes) {
+            const resDiv = document.getElementById('resultado');
+            const listaDiv = document.getElementById('equipes-lista');
+            resDiv.classList.remove('hidden');
+            resDiv.scrollIntoView({ behavior: 'smooth' });
+            listaDiv.innerHTML = '';
+
+            equipes.forEach((eq, index) => {
+                const nomes = eq.map(p => `${p.nome}${p.carro ? ' 🚗' : ''}`).join(' + ');
+                const card = document.createElement('div');
+                card.className = "bg-yellow-50 p-3 rounded-xl border-l-4 border-yellow-400 font-bold text-gray-800 text-sm";
+                card.innerHTML = `Equipe ${index + 1}: <span class="text-red-500">${nomes}</span>`;
+                listaDiv.appendChild(card);
+            });
+        }
+
+        function copiarWhatsApp() {
+            let texto = "*ESCALA UAI - PLANTÃO DA ALEGRIA*❤️\n\n";
+            document.querySelectorAll('#equipes-lista div').forEach(el => {
+                texto += el.innerText.replace('\n', '') + "\n";
+            });
+            texto += "\nQue a alegria seja contagiante! ✨";
+            
+            navigator.clipboard.writeText(texto);
+            alert("Escala copiada! Vá para o WhatsApp e cole no grupo.");
+        }
+
+        // Funções para manipulação de CSV
+        function exportarCSV() {
+            let csvStr = "nome,tem_carro\n";
+            database.forEach(p => {
+                csvStr += `"${p.nome.replace(/"/g, '""')}",${p.carro ? 'true' : 'false'}\n`;
+            });
+            
+            const blob = new Blob([csvStr], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute("download", "voluntarios_uai.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function importarCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const linhas = text.split('\n');
+                let importados = [];
+
+                for (let i = 1; i < linhas.length; i++) {
+                    const linha = linhas[i].trim();
+                    if (!linha) continue;
+
+                    // Divide pegando aspas se houver
+                    const colunas = linha.split(',');
+                    const nome = colunas[0].replace(/"/g, '').trim();
+                    const carro = colunas[1] ? colunas[1].toLowerCase().trim() === 'true' : false;
+
+                    if (nome) {
+                        importados.push({
+                            id: Date.now() + i,
+                            nome: nome,
+                            carro: carro
+                        });
+                    }
+                }
+
+                if (importados.length > 0) {
+                    if (confirm(`Deseja substituir seus ${database.length} voluntários atuais pelos ${importados.length} vindos do arquivo CSV?`)) {
+                        database = importados;
+                        salvarDatabase();
+                    }
+                } else {
+                    alert("Formato de arquivo CSV inválido. Certifique-se de usar vírgulas como separador.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Inicializa a interface
+        renderizarLista();
+    </script>
+</body>
+</html>
