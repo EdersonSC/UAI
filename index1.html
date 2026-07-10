@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UAI - Plantão da Alegria</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #fffbeb; -webkit-tap-highlight-color: transparent; }
+        .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #ef4444; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-screen pb-10 font-sans selection:bg-red-100">
+
+    <!-- Header UAI -->
+    <div class="bg-gradient-to-r from-red-600 to-red-500 p-6 text-center shadow-lg border-b-4 border-yellow-400">
+        <h1 class="text-4xl font-black text-white tracking-widest drop-shadow">UAI 🤡</h1>
+        <p class="text-xs font-bold text-yellow-200 uppercase mt-1 tracking-tighter">Unidade de Alegria Intensiva</p>
+    </div>
+
+    <div class="max-w-md mx-auto p-4 space-y-6">
+        
+        <!-- Bloco 1: Status e Data -->
+        <div class="bg-white rounded-3xl shadow-md p-5 border-2 border-red-100">
+            <div class="flex justify-between items-center mb-4">
+                <div id="loader" class="flex items-center gap-2 text-sm text-gray-500 font-bold">
+                    <div class="spinner"></div> Sincronizando Sheets...
+                </div>
+                <input type="date" id="data-plantao" class="text-xs font-bold border rounded-lg p-1 text-red-600 bg-red-50">
+            </div>
+            
+            <h2 class="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
+                🔴 ESCALADOS HOJE
+            </h2>
+
+            <div id="lista-palhacos" class="space-y-2 max-h-80 overflow-y-auto pr-1 hidden">
+                <!-- Javascript injeta aqui -->
+            </div>
+        </div>
+
+        <!-- Botão Principal -->
+        <button onclick="gerarEscala()" id="btn-gerar" class="w-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all text-white font-black py-5 rounded-3xl shadow-xl text-xl tracking-wider disabled:opacity-50" disabled>
+            GERAR PLANTÃO 🎲
+        </button>
+
+        <!-- Bloco 2: Resultado -->
+        <div id="resultado" class="hidden bg-white rounded-3xl shadow-xl p-6 border-4 border-emerald-400 animate-bounce-short">
+            <h3 class="font-black text-emerald-600 mb-4 text-center tracking-widest uppercase">📋 EQUIPES DE RISO</h3>
+            <div id="equipes-lista" class="space-y-3"></div>
+            
+            <button onclick="copiarWhatsApp()" class="mt-8 w-full bg-emerald-500 text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
+                COPIAR P/ WHATSAPP 📱
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const SHEETS = {
+            voluntarios: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTk1NREjNoI-AFtMg-B0JIncm4wOOb35ZhZeKflfON4eqQItXOs--s0yvE9UoqvzK8PUT-njhqcDgbZ/pub?gid=0&single=true&output=csv",
+            indisponibilidade: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTk1NREjNoI-AFtMg-B0JIncm4wOOb35ZhZeKflfON4eqQItXOs--s0yvE9UoqvzK8PUT-njhqcDgbZ/pubhtml?gid=385126407&single=truehttps://docs.google.com/spreadsheets/d/e/2PACX-1vTk1NREjNoI-AFtMg-B0JIncm4wOOb35ZhZeKflfON4eqQItXOs--s0yvE9UoqvzK8PUT-njhqcDgbZ/pub?gid=385126407&single=true&output=csv",
+            afinidades: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTk1NREjNoI-AFtMg-B0JIncm4wOOb35ZhZeKflfON4eqQItXOs--s0yvE9UoqvzK8PUT-njhqcDgbZ/pub?gid=1233735982&single=true&output=csv",
+            config: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTk1NREjNoI-AFtMg-B0JIncm4wOOb35ZhZeKflfON4eqQItXOs--s0yvE9UoqvzK8PUT-njhqcDgbZ/pub?gid=1757836206&single=true&output=csv"
+        };
+
+        let db = { palhacos: [], indisponiveis: [], afinidades: [], config: {} };
+
+        // Define data de hoje no input
+        document.getElementById('data-plantao').valueAsDate = new Date();
+
+        async function fetchCSV(url) {
+            const resp = await fetch(url);
+            const text = await resp.text();
+            const [header, ...rows] = text.split('\n');
+            const cols = header.split(',').map(c => c.trim().toLowerCase());
+            return rows.filter(r => r.trim() !== "").map(row => {
+                const vals = row.split(',');
+                let obj = {};
+                cols.forEach((c, i) => obj[c] = vals[i] ? vals[i].trim() : "");
+                return obj;
+            });
+        }
+
+        async function init() {
+            try {
+                const [v, i, a, c] = await Promise.all([
+                    fetchCSV(SHEETS.voluntarios),
+                    fetchCSV(SHEETS.indisponibilidade),
+                    fetchCSV(SHEETS.afinidades) || [],
+                    fetchCSV(SHEETS.config) || []
+                ]);
+                
+                db.palhacos = v;
+                db.indisponiveis = i;
+                db.afinidades = a;
+                // Transforma config em objeto chave-valor
+                c.forEach(item => db.config[item.chave] = item.valor);
+
+                renderizar();
+                document.getElementById('loader').innerHTML = '✅ Conectado ao Google Sheets';
+                document.getElementById('btn-gerar').disabled = false;
+            } catch (err) {
+                console.error(err);
+                document.getElementById('loader').innerText = '❌ Erro ao ler dados. Verifique a internet.';
+            }
+        }
+
+        function renderizar() {
+            const container = document.getElementById('lista-palhacos');
+            const dataPlantao = document.getElementById('data-plantao').value;
+            container.innerHTML = '';
+            container.classList.remove('hidden');
+
+            const blockIds = db.indisponiveis
+                .filter(ind => ind.data === dataPlantao)
+                .map(ind => ind.voluntario_id);
+
+            // Filtra só palhaços ativos e que não estão indisponíveis na data
+            const elegiveis = db.palhacos.filter(p => p.ativo.toUpperCase() === 'SIM' && !blockIds.includes(p.id));
+
+            elegiveis.forEach(p => {
+                const div = document.createElement('div');
+                div.className = "flex items-center p-3 bg-gray-50 rounded-2xl border border-gray-100 hover:bg-red-50 transition-colors";
+                div.innerHTML = `
+                    <label class="flex items-center w-full cursor-pointer">
+                        <input type="checkbox" value="${p.id}" class="w-6 h-6 text-red-500 rounded-lg mr-3 accent-red-500">
+                        <div>
+                            <p class="font-black text-gray-800 text-sm italic">"${p.apelido || p.nome}"</p>
+                            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                                ${p.carro.toUpperCase() === 'SIM' ? '🚗 Motorista' : '👣 Passageiro'}
+                            </p>
+                        </div>
+                    </label>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function gerarEscala() {
+            const selecionadosIds = Array.from(document.querySelectorAll('#lista-palhacos input:checked')).map(el => el.value);
+            let presentes = db.palhacos.filter(p => selecionadosIds.includes(p.id));
+
+            if (presentes.length < 2) return alert("Selecione no mínimo 2 palhaços!");
+
+            // Lógica de Embaralhar
+            presentes.sort(() => Math.random() - 0.5);
+
+            const motoristas = presentes.filter(p => p.carro.toUpperCase() === 'SIM');
+            const passageiros = presentes.filter(p => p.carro.toUpperCase() !== 'SIM');
+
+            let grupos = [];
+
+            // Regra 1: Iniciar grupos com motoristas
+            while (motoristas.length > 0 && (motoristas.length + passageiros.length) >= 2) {
+                let gp = [motoristas.shift()];
+                gp.push(passageiros.length > 0 ? passageiros.shift() : motoristas.shift());
+                grupos.push(gp);
+            }
+
+            // Regra 2: Restantes formam duplas
+            let restos = [...motoristas, ...passageiros];
+            while (restos.length >= 2) grupos.push([restos.shift(), restos.shift()]);
+
+            // Regra 3: Se sobrar 1, vira Trio no último grupo
+            if (restos.length === 1 && grupos.length > 0) grupos[grupos.length - 1].push(restos.shift());
+            else if (restos.length === 1) grupos.push([restos.shift()]);
+
+            exibirResultado(grupos);
+        }
+
+        function exibirResultado(grupos) {
+            const resDiv = document.getElementById('resultado');
+            const listaDiv = document.getElementById('equipes-lista');
+            resDiv.classList.remove('hidden');
+            resDiv.scrollIntoView({ behavior: 'smooth' });
+            listaDiv.innerHTML = '';
+
+            grupos.forEach((g, i) => {
+                const nomes = g.map(p => `${p.apelido || p.nome}${p.carro.toUpperCase() === 'SIM' ? '🚗' : ''}`).join(' + ');
+                listaDiv.innerHTML += `
+                    <div class="bg-yellow-50 p-4 rounded-2xl border-l-[12px] border-yellow-400 font-black text-gray-800 text-sm">
+                        EQUIPE ${i + 1}: <span class="text-red-600 uppercase">${nomes}</span>
+                    </div>`;
+            });
+        }
+
+        function copiarWhatsApp() {
+            let texto = "*ESCALA UAI - PLANTÃO DA ALEGRIA* \n\n";
+            document.querySelectorAll('#equipes-lista div').forEach(el => texto += el.innerText + "\n");
+            texto += "\n_Que a alegria seja contagiante!_ ✨";
+            navigator.clipboard.writeText(texto).then(() => alert("Copiado com sucesso!"));
+        }
+
+        init();
+    </script>
+</body>
+</html>
