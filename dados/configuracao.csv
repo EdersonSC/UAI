@@ -1,0 +1,7 @@
+chave,valor
+minimo_grupo,2
+maximo_grupo,3
+priorizar_carro,SIM
+respeitar_afinidade,SIM
+respeitar_restricao,SIM
+equilibrar_escalas,SIM
