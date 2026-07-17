@@ -126,26 +126,11 @@
 
     <script>
         const HOSPITAIS = [
-            {
-                nome: "Santa Casa de Mogi Guaçu",
-                cor: "border-blue-600",
-                fundo: "bg-blue-50"
-            },
-            {
-                nome: "Santa Casa de Mogi Mirim",
-                cor: "border-emerald-600",
-                fundo: "bg-emerald-50"
-            },
-            {
-                nome: "Hospital São Francisco",
-                cor: "border-purple-600",
-                fundo: "bg-purple-50"
-            },
-            {
-                nome: "Hospital 22 de Outubro",
-                cor: "border-red-600",
-                fundo: "bg-red-50"
-            }
+    { nome: "Santa Casa de Mogi Guaçu", cor: "border-blue-600", fundo: "bg-blue-50" },
+    { nome: "Santa Casa de Mogi Mirim", cor: "border-emerald-600", fundo: "bg-emerald-50" },
+    { nome: "Hospital São Francisco", cor: "border-purple-600", fundo: "bg-purple-50" },
+    { nome: "Hospital 22 de Outubro", cor: "border-red-600", fundo: "bg-red-50" },
+    { nome: "Hospital Tabajara", cor: "border-yellow-600", fundo: "bg-yellow-50", unico: true }
         ];
 
         const ARQUIVOS = {
@@ -470,63 +455,54 @@
 
         function gerarEscala() {
             avisosAtuais = [];
-
-            const nomesSelecionados = Array.from(
-                document.querySelectorAll("#lista-presenca input:checked")
-            ).map(item => item.value);
-
-            const presentes = db.voluntarios
-                .filter(voluntario => nomesSelecionados.includes(voluntario.nome))
-                .map(voluntario => ({
-                    ...voluntario,
-                    ultimoHospital: ultimoHospitalDo(voluntario)
-                }));
-
-            if (presentes.length < 8) {
-                alert(
-                    "Para atender os quatro hospitais com equipes de pelo menos duas pessoas, selecione no mínimo 8 voluntários."
-                );
-                return;
+            const nomesSelecionados = Array.from(document.querySelectorAll("#lista-presenca input:checked")).map(item => item.value);
+            let presentes = db.voluntarios.filter(v => nomesSelecionados.includes(v.nome))
+                            .map(v => ({ ...v, ultimoHospital: ultimoHospitalDo(v) }));
+        
+            if (presentes.length < 10) return alert("Mínimo de 10 pessoas para cobrir os 5 hospitais!");
+        
+            let equipesFormadas = [];
+        
+            // 1. FORMAR CASAIS OBRIGATÓRIOS (Sempre Junto)
+            db.voluntarios.forEach(p => {
+                if (p.sempre_junto) {
+                    const eu = presentes.find(v => v.nome === p.nome);
+                    const par = presentes.find(v => v.nome === p.sempre_junto);
+                    if (eu && par) {
+                        equipesFormadas.push([eu, par]);
+                        presentes = presentes.filter(v => v.nome !== eu.nome && v.nome !== par.nome);
+                    }
+                }
+            });
+        
+            // 2. FORMAR RESTANTE DAS EQUIPES (Mistas + Veterano/Novato)
+            const sorteio = criarDuplasMistas(presentes);
+            equipesFormadas.push(...sorteio.equipes);
+            
+            // Alocar quem sobrou em equipes existentes (máx 4 por equipe)
+            adicionarRestantes(equipesFormadas, sorteio.restantes);
+        
+            // 3. DISTRIBUIR NOS HOSPITAIS
+            // Embaralha as equipes para não ser sempre os mesmos nos mesmos lugares
+            let equipesFila = embaralhar(equipesFormadas);
+            let escalaHospitais = HOSPITAIS.map(h => ({ hospital: h, equipes: [] }));
+        
+            // Primeiro: Hospital Pequeno (Garante apenas 1 equipe)
+            const hPequeno = escalaHospitais.find(h => h.hospital.unico);
+            hPequeno.equipes.push(equipesFila.shift());
+        
+            // Segundo: Garante pelo menos 1 equipe nos outros 4
+            const hNormais = escalaHospitais.filter(h => !h.hospital.unico);
+            hNormais.forEach(h => { if(equipesFila.length > 0) h.equipes.push(equipesFila.shift()); });
+        
+            // Terceiro: Distribui o que sobrar nos 4 normais
+            let i = 0;
+            while(equipesFila.length > 0) {
+                hNormais[i % 4].equipes.push(equipesFila.shift());
+                i++;
             }
-
-            const homens = presentes.filter(pessoa => normalizar(pessoa.sexo) === "M");
-            const mulheres = presentes.filter(pessoa => normalizar(pessoa.sexo) === "F");
-            const veteranos = presentes.filter(pessoa => normalizar(pessoa.experiencia) === "VETERANO");
-            const novatos = presentes.filter(pessoa => normalizar(pessoa.experiencia) === "NOVATO");
-
-            if (!homens.length || !mulheres.length) {
-                alert("Não é possível formar equipes mistas: é necessário ter homens e mulheres presentes.");
-                return;
-            }
-
-            if (!veteranos.length || !novatos.length) {
-                alert("Não é possível garantir veterano e novato: selecione pelo menos um de cada.");
-                return;
-            }
-
-            const resultadoDuplas = criarDuplasMistas(presentes);
-            const equipes = resultadoDuplas.equipes;
-
-            if (equipes.length < 4) {
-                alert(
-                    "Não foi possível formar ao menos quatro equipes com homem, mulher, veterano e novato. Revise as presenças selecionadas."
-                );
-                return;
-            }
-
-            const naoAlocados = adicionarRestantes(equipes, resultadoDuplas.restantes);
-
-            if (naoAlocados.length) {
-                avisosAtuais.push(
-                    `Não foi possível alocar automaticamente: ${naoAlocados.map(p => p.nome).join(", ")}.`
-                );
-            }
-
-            validarSempreJunto(equipes);
-
-            const distribuicao = distribuirHospitais(equipes);
-
-            escalaAtual = distribuicao;
+        
+            escalaAtual = escalaHospitais;
             mostrarAvisos();
             mostrarEscala();
         }
