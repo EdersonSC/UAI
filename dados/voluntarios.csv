@@ -1,4 +1,25 @@
-id,nome,apelido,carro,ativo,frequencia,lider,observacao
-1,João Silva,Dr. Pipoca,SIM,SIM,SEMPRE,SIM,
-2,Maria Souza,Dra. Jujuba,NAO,SIM,SIM_NAO,NAO,
-3,Carlos Lima,Dr. Risadinha,SIM,SIM,SEMPRE,NAO,
+nome;sexo;transporte;experiencia;sempre_junto;nunca_junto;ativo
+Aline Maria;F;Carona;Novato;;;SIM
+Aline Oliveira;F;Carona;Novato;;;SIM
+Ana Beatriz;F;Carona;Novato;;;SIM
+Daiane Batista;F;Carro;Veterano;Lucas Alves;;SIM
+Ederson Santos;M;Carro;Novato;;;SIM
+Elisa de Oliveira;F;Carona;Veterano;;William Tsukada;SIM
+Érica Lima;F;Carro;Novato;;;SIM
+Erika Braga;F;Carona;Novato;;;SIM
+Gabriel Gomes;M;Carro;Veterano;Thaís Xavier;;SIM
+Lidiane Mendes;F;Carro;Novato;;;SIM
+Lucas Alves;M;Carro;Veterano;Daiane Batista;;SIM
+Lucas Cola;M;Carro;Veterano;;;SIM
+Lucineia Chaves;F;Carro;Novato;;;SIM
+Marcelo Teodoro;M;Carro;Veterano;;;SIM
+Márcia Cardoso;F;Carro;Veterano;;;SIM
+Márcia Prado;F;Moto;Veterano;;;SIM
+Marilza Pereira;F;Carona;Novato;;;SIM
+Maurício Attie;M;Carro;Veterano;;;SIM
+Renata Souza;F;Carro;Novato;;;SIM
+Sidnei Carlos Neto;M;Carro;Veterano;;;SIM
+Thaís Socolovitch;F;Carro;Veterano;Gabriel Gomes;;SIM
+Thais Xavier;F;Carro;Veterano;Gabriel Gomes;;SIM
+Toni Leandro;M;Carro;Veterano;;;SIM
+William Tsukada;M;Carona;Veterano;;Elisa de Oliveira;SIM
