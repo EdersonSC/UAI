@@ -3,68 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <title>UAI - Escala 4 Hospitais</title>
+    <title>UAI — Plantão da Alegria</title>
+
     <script src="https://cdn.tailwindcss.com"></script>
+
     <style>
-        body { background-color: #fffaf0; font-family: sans-serif; }
-        .card { background: white; border-radius: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
-        .hospital-card { border-left-width: 12px; transition: transform 0.2s; }
-        .hospital-card:hover { transform: translateX(5px); }
+        body {
+            background: #fffaf0;
+            font-family: Arial, sans-serif;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 5px 22px rgba(0, 0, 0, 0.07);
+        }
+
+        .hospital-card {
+            border-left-width: 10px;
+        }
+
+        .tag {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 10px;
+            font-weight: 800;
+            margin: 2px 2px 0 0;
+        }
     </style>
 </head>
+
 <body class="pb-12">
 
-    <header class="bg-gradient-to-r from-red-700 to-red-500 text-white p-6 text-center shadow-xl border-b-4 border-yellow-400">
-        <h1 class="text-4xl font-black italic tracking-tighter">UAI 🤡</h1>
-        <p class="text-[10px] font-bold text-yellow-200 uppercase tracking-widest mt-1">Divisão para os 4 Hospitais</p>
+    <header class="bg-gradient-to-r from-red-800 to-red-500 text-center shadow-lg border-b-4 border-yellow-400">
+        <div class="bg-white p-5">
+            <img src="UAI.jpg" alt="Logo UAI" class="mx-auto w-20 h-20 object-contain mb-2">
+            <p class="text-xs font-bold text-red-900 uppercase">
+                Unidade de Alegria Intensiva
+            </p>
+        </div>
+
+        <div class="py-3 px-4 text-white">
+            <h1 class="font-black text-xl">PLANTÃO DA ALEGRIA 🤡</h1>
+            <p class="text-[10px] text-yellow-100 font-bold uppercase tracking-widest mt-1">
+                Escala para os quatro hospitais
+            </p>
+        </div>
     </header>
 
     <main class="max-w-xl mx-auto p-4 space-y-5">
-        
-        <!-- Status -->
-        <div id="status" class="card p-4 text-center text-sm font-bold text-gray-400 italic">
-            ⏳ Sincronizando com pastas locais...
+
+        <div id="status" class="card p-4 text-center text-sm font-bold text-gray-500">
+            ⏳ Carregando dados...
         </div>
 
-        <!-- Data -->
         <div class="card p-5">
-            <label class="block text-[10px] font-black text-red-400 uppercase mb-2">Data do Plantão:</label>
-            <input type="date" id="data-plantao" class="w-full p-3 bg-red-50 rounded-xl font-bold text-lg border-2 border-transparent focus:border-red-300 outline-none">
+            <label class="block text-xs font-black text-red-700 uppercase mb-2">
+                Data do plantão
+            </label>
+
+            <input
+                type="date"
+                id="data-plantao"
+                class="w-full p-3 rounded-xl bg-red-50 border-2 border-red-100 font-bold outline-none"
+            >
         </div>
 
-        <!-- Presença -->
         <div class="card p-5">
-            <h2 class="font-black text-gray-800 mb-4 flex justify-between items-center text-lg">
-                QUEM VAI HOJE? 🎭
-                <span id="contador" class="text-sm bg-red-600 text-white px-3 py-1 rounded-full px-2">0</span>
+            <h2 class="font-black text-gray-800 text-lg flex justify-between items-center mb-4">
+                Quem vai hoje? 🎭
+                <span id="contador" class="bg-red-600 text-white text-sm px-3 py-1 rounded-full">
+                    0
+                </span>
             </h2>
-            <div id="lista-presenca" class="grid grid-cols-1 gap-2 max-h-80 overflow-y-auto pr-2">
-                <!-- Preenchido via JS -->
-            </div>
+
+            <p class="text-xs text-gray-500 mb-3">
+                Selecione as pessoas presentes no ponto de encontro.
+            </p>
+
+            <div id="lista-presenca" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
         </div>
 
-        <!-- Gerar -->
-        <button onclick="gerarEscala()" id="btn-gerar" class="w-full bg-red-600 text-white font-black py-5 rounded-3xl shadow-2xl text-xl hover:bg-red-700 active:scale-95 transition-all disabled:opacity-30" disabled>
-            GERAR EQUIPES 🎲
+        <button
+            id="btn-gerar"
+            onclick="gerarEscala()"
+            disabled
+            class="w-full bg-red-600 text-white font-black text-lg py-5 rounded-2xl shadow-lg disabled:opacity-40 active:scale-95 transition"
+        >
+            GERAR ESCALA 🎲
         </button>
 
-        <!-- Resultado -->
-        <div id="resultado" class="hidden space-y-4">
-            <h2 class="text-center font-black text-gray-400 uppercase text-xs tracking-widest mt-8">Escala sugeria para hoje</h2>
+        <div id="avisos" class="hidden card p-4 border-2 border-yellow-300 bg-yellow-50"></div>
+
+        <section id="resultado" class="hidden space-y-4">
+            <h2 class="text-center text-xs text-gray-500 font-black uppercase tracking-widest">
+                Escala sugerida
+            </h2>
+
             <div id="equipes-hospitais" class="space-y-4"></div>
-            
-            <button onclick="copiarWhatsApp()" class="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
+
+            <button
+                onclick="copiarWhatsApp()"
+                class="w-full bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-lg active:scale-95 transition"
+            >
                 COPIAR PARA WHATSAPP 📱
             </button>
-        </div>
+
+            <button
+                onclick="baixarHistorico()"
+                class="w-full bg-blue-700 text-white font-black py-4 rounded-2xl shadow-lg active:scale-95 transition"
+            >
+                BAIXAR HISTÓRICO ATUALIZADO 📥
+            </button>
+
+            <p class="text-xs text-center text-gray-500 px-3">
+                Após baixar, substitua o arquivo
+                <strong>dados/historico_escalas.csv</strong> pelo arquivo baixado e envie-o ao GitHub.
+            </p>
+        </section>
     </main>
 
     <script>
         const HOSPITAIS = [
-            { nome: "Santa Casa de Mogi Guaçu", cor: "border-blue-500", bg: "bg-blue-50" },
-            { nome: "Santa Casa de Mogi Mirim", cor: "border-emerald-500", bg: "bg-emerald-50" },
-            { nome: "Hospital São Francisco", cor: "border-purple-500", bg: "bg-purple-50" },
-            { nome: "Hospital 22 de Outubro", cor: "border-red-500", bg: "bg-red-50" }
+            {
+                nome: "Santa Casa de Mogi Guaçu",
+                cor: "border-blue-600",
+                fundo: "bg-blue-50"
+            },
+            {
+                nome: "Santa Casa de Mogi Mirim",
+                cor: "border-emerald-600",
+                fundo: "bg-emerald-50"
+            },
+            {
+                nome: "Hospital São Francisco",
+                cor: "border-purple-600",
+                fundo: "bg-purple-50"
+            },
+            {
+                nome: "Hospital 22 de Outubro",
+                cor: "border-red-600",
+                fundo: "bg-red-50"
+            }
         ];
 
         const ARQUIVOS = {
@@ -73,169 +154,594 @@
             historico: "./dados/historico_escalas.csv"
         };
 
-        let db = { voluntarios: [], indisponiveis: [], historico: [] };
-        document.getElementById('data-plantao').valueAsDate = new Date();
+        let db = {
+            voluntarios: [],
+            indisponibilidade: [],
+            historico: []
+        };
 
-        async function fetchCSV(url) {
-            try {
-                const resp = await fetch(url + '?v=' + Date.now());
-                if(!resp.ok) return [];
-                const text = await resp.text();
-                const lines = text.split('\n').filter(l => l.trim() !== "");
-                const header = lines[0].split(',').map(c => c.trim().toLowerCase());
-                return lines.slice(1).map(line => {
-                    const values = line.split(',');
-                    let obj = {};
-                    header.forEach((h, i) => obj[h] = values[i] ? values[i].trim() : "");
-                    return obj;
-                });
-            } catch(e) { return []; }
+        let escalaAtual = [];
+        let avisosAtuais = [];
+
+        document.getElementById("data-plantao").valueAsDate = new Date();
+
+        function normalizar(texto) {
+            return String(texto || "")
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .trim()
+                .toUpperCase();
         }
 
-        async function init() {
-            db.voluntarios = await fetchCSV(ARQUIVOS.voluntarios);
-            db.indisponiveis = await fetchCSV(ARQUIVOS.indisponibilidade);
-            db.historico = await fetchCSV(ARQUIVOS.historico);
+        function escaparCSV(valor) {
+            const texto = String(valor ?? "");
+            return `"${texto.replace(/"/g, '""')}"`;
+        }
 
-            if(db.voluntarios.length > 0) {
+        function embaralhar(lista) {
+            return [...lista].sort(() => Math.random() - 0.5);
+        }
+
+        function lerCSV(texto) {
+            const linhas = texto
+                .replace(/\r/g, "")
+                .split("\n")
+                .filter(linha => linha.trim() !== "");
+
+            if (linhas.length < 2) return [];
+
+            const separador = linhas[0].includes(";") ? ";" : ",";
+
+            const cabecalho = linhas[0]
+                .split(separador)
+                .map(item => item.replace(/^"|"$/g, "").trim().toLowerCase());
+
+            return linhas.slice(1).map(linha => {
+                const valores = linha
+                    .split(separador)
+                    .map(item => item.replace(/^"|"$/g, "").trim());
+
+                const objeto = {};
+
+                cabecalho.forEach((coluna, indice) => {
+                    objeto[coluna] = valores[indice] || "";
+                });
+
+                return objeto;
+            });
+        }
+
+        async function carregarCSV(url) {
+            const resposta = await fetch(`${url}?v=${Date.now()}`);
+
+            if (!resposta.ok) {
+                throw new Error(`Não foi possível abrir: ${url}`);
+            }
+
+            return lerCSV(await resposta.text());
+        }
+
+        async function iniciar() {
+            try {
+                db.voluntarios = await carregarCSV(ARQUIVOS.voluntarios);
+                db.indisponibilidade = await carregarCSV(ARQUIVOS.indisponibilidade);
+                db.historico = await carregarCSV(ARQUIVOS.historico);
+
+                if (!db.voluntarios.length) {
+                    throw new Error("Nenhum voluntário foi encontrado.");
+                }
+
                 renderizarPresenca();
-                document.getElementById('status').innerHTML = "✅ Dados carregados!";
-                document.getElementById('btn-gerar').disabled = false;
-            } else {
-                document.getElementById('status').innerHTML = "❌ Erro ao ler voluntarios.csv";
+
+                document.getElementById("btn-gerar").disabled = false;
+                document.getElementById("status").innerHTML =
+                    `✅ ${db.voluntarios.length} voluntários carregados com sucesso.`;
+
+            } catch (erro) {
+                console.error(erro);
+
+                document.getElementById("status").innerHTML =
+                    "❌ Não foi possível ler os CSVs. Confira os nomes dos arquivos e abra o app pelo GitHub Pages ou Live Server.";
             }
         }
 
+        function estaIndisponivel(voluntario, data) {
+            return db.indisponibilidade.some(item =>
+                item.data === data &&
+                normalizar(item.voluntario) === normalizar(voluntario.nome)
+            );
+        }
+
         function renderizarPresenca() {
-            const container = document.getElementById('lista-presenca');
-            const dataSel = document.getElementById('data-plantao').value;
-            container.innerHTML = "";
-            
-            const idsIndisponiveis = db.indisponiveis.filter(i => i.data === dataSel).map(i => i.voluntario_id);
+            const lista = document.getElementById("lista-presenca");
+            const data = document.getElementById("data-plantao").value;
+
+            lista.innerHTML = "";
 
             db.voluntarios
-                .filter(v => v.ativo && v.ativo.toUpperCase() === 'SIM')
-                .forEach(p => {
-                    const block = idsIndisponiveis.includes(p.id);
-                    const div = document.createElement('div');
-                    div.className = `flex items-center p-3 rounded-xl border ${block ? 'opacity-40 bg-gray-100 cursor-not-allowed' : 'bg-white border-gray-100'}`;
-                    div.innerHTML = `
-                        <label class="flex items-center w-full ${block ? '' : 'cursor-pointer'}">
-                            <input type="checkbox" value="${p.id}" ${block ? 'disabled' : 'onchange="atualizarContador()"'} class="w-5 h-5 accent-red-600 mr-3">
-                            <div class="text-sm">
-                                <span class="font-bold text-gray-800">${p.apelido || p.nome} ${block ? '🚫' : ''}</span>
-                                <span class="text-[10px] text-gray-400 block uppercase">
-                                    ${p.carro.toUpperCase() === 'SIM' ? '🚗 Motorista' : '👣 Passageiro'}
-                                </span>
+                .filter(voluntario => normalizar(voluntario.ativo) === "SIM")
+                .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+                .forEach(voluntario => {
+                    const bloqueado = estaIndisponivel(voluntario, data);
+
+                    const transporte = normalizar(voluntario.transporte);
+                    const icone = transporte === "CARRO"
+                        ? "🚗 Carro"
+                        : transporte === "MOTO"
+                            ? "🏍️ Moto"
+                            : "👣 Carona";
+
+                    const experiencia = normalizar(voluntario.experiencia) === "VETERANO"
+                        ? "⭐ Veterano"
+                        : "🌱 Novato";
+
+                    const item = document.createElement("div");
+
+                    item.className = `
+                        p-3 rounded-xl border flex items-center
+                        ${bloqueado ? "bg-gray-100 opacity-50" : "bg-white border-gray-100"}
+                    `;
+
+                    item.innerHTML = `
+                        <label class="flex items-center w-full ${bloqueado ? "" : "cursor-pointer"}">
+                            <input
+                                type="checkbox"
+                                value="${voluntario.nome}"
+                                ${bloqueado ? "disabled" : ""}
+                                onchange="atualizarContador()"
+                                class="w-5 h-5 accent-red-600 mr-3"
+                            >
+
+                            <div class="flex-1">
+                                <div class="font-bold text-gray-800 text-sm">
+                                    ${voluntario.nome} ${bloqueado ? "🚫" : ""}
+                                </div>
+
+                                <div class="text-[10px] text-gray-500 uppercase mt-1">
+                                    ${voluntario.sexo === "M" ? "👨 Homem" : "👩 Mulher"}
+                                    · ${icone}
+                                    · ${experiencia}
+                                </div>
                             </div>
                         </label>
                     `;
-                    container.appendChild(div);
+
+                    lista.appendChild(item);
                 });
+
             atualizarContador();
         }
 
         function atualizarContador() {
-            const qtd = document.querySelectorAll('#lista-presenca input:checked').length;
-            document.getElementById('contador').innerText = qtd;
+            const quantidade = document.querySelectorAll(
+                "#lista-presenca input:checked"
+            ).length;
+
+            document.getElementById("contador").innerText = quantidade;
+        }
+
+        function ultimoHospitalDo(voluntario) {
+            const registros = db.historico
+                .filter(item => normalizar(item.voluntario) === normalizar(voluntario.nome))
+                .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+
+            if (!registros.length) return "";
+
+            return registros[registros.length - 1].hospital;
+        }
+
+        function temRestricao(pessoaA, pessoaB) {
+            const aNunca = normalizar(pessoaA.nunca_junto);
+            const bNunca = normalizar(pessoaB.nunca_junto);
+
+            return aNunca === normalizar(pessoaB.nome) ||
+                   bNunca === normalizar(pessoaA.nome);
+        }
+
+        function criarDuplasMistas(presentes) {
+            let disponiveis = embaralhar(presentes);
+            const equipes = [];
+
+            while (disponiveis.length >= 2) {
+                let duplaCriada = false;
+
+                for (let i = 0; i < disponiveis.length; i++) {
+                    for (let j = i + 1; j < disponiveis.length; j++) {
+                        const pessoaA = disponiveis[i];
+                        const pessoaB = disponiveis[j];
+
+                        const sexoDiferente =
+                            normalizar(pessoaA.sexo) !== normalizar(pessoaB.sexo);
+
+                        const experienciaDiferente =
+                            normalizar(pessoaA.experiencia) !== normalizar(pessoaB.experiencia);
+
+                        if (
+                            sexoDiferente &&
+                            experienciaDiferente &&
+                            !temRestricao(pessoaA, pessoaB)
+                        ) {
+                            equipes.push([pessoaA, pessoaB]);
+
+                            disponiveis.splice(j, 1);
+                            disponiveis.splice(i, 1);
+
+                            duplaCriada = true;
+                            break;
+                        }
+                    }
+
+                    if (duplaCriada) break;
+                }
+
+                if (!duplaCriada) break;
+            }
+
+            return {
+                equipes,
+                restantes: disponiveis
+            };
+        }
+
+        function adicionarRestantes(equipes, restantes) {
+            const naoAlocados = [];
+
+            restantes.forEach(pessoa => {
+                const equipeValida = equipes.find(equipe => {
+                    if (equipe.length >= 4) return false;
+
+                    return !equipe.some(membro => temRestricao(pessoa, membro));
+                });
+
+                if (equipeValida) {
+                    equipeValida.push(pessoa);
+                } else {
+                    naoAlocados.push(pessoa);
+                }
+            });
+
+            return naoAlocados;
+        }
+
+        function hospitalPermitido(equipe, hospital) {
+            return !equipe.some(pessoa =>
+                normalizar(pessoa.ultimoHospital) === normalizar(hospital.nome)
+            );
+        }
+
+        function temCarro(equipe) {
+            return equipe.some(pessoa => normalizar(pessoa.transporte) === "CARRO");
+        }
+
+        function distribuirHospitais(equipes) {
+            const distribuicao = HOSPITAIS.map(hospital => ({
+                hospital,
+                equipes: []
+            }));
+
+            const ordenadas = [...equipes].sort((a, b) => {
+                return Number(temCarro(b)) - Number(temCarro(a));
+            });
+
+            ordenadas.forEach(equipe => {
+                let opcoes = distribuicao
+                    .filter(item => hospitalPermitido(equipe, item.hospital))
+                    .sort((a, b) => a.equipes.length - b.equipes.length);
+
+                if (!opcoes.length) {
+                    avisosAtuais.push(
+                        `Não foi possível evitar repetição de hospital para todos os membros de uma equipe. Revise o aviso "Hospital repetido".`
+                    );
+
+                    opcoes = [...distribuicao]
+                        .sort((a, b) => a.equipes.length - b.equipes.length);
+                }
+
+                const destino = opcoes[0];
+                destino.equipes.push(equipe);
+            });
+
+            return distribuicao;
+        }
+
+        function validarSempreJunto(equipes) {
+            db.voluntarios.forEach(pessoa => {
+                if (!pessoa.sempre_junto) return;
+
+                const parceiro = normalizar(pessoa.sempre_junto);
+
+                const equipeDaPessoa = equipes.find(equipe =>
+                    equipe.some(membro => normalizar(membro.nome) === normalizar(pessoa.nome))
+                );
+
+                if (!equipeDaPessoa) return;
+
+                const parceiroNaEquipe = equipeDaPessoa.some(membro =>
+                    normalizar(membro.nome) === parceiro
+                );
+
+                if (!parceiroNaEquipe) {
+                    avisosAtuais.push(
+                        `${pessoa.nome} deveria ficar com ${pessoa.sempre_junto}, mas a combinação não foi possível automaticamente.`
+                    );
+                }
+            });
         }
 
         function gerarEscala() {
-            const selecionadosIds = Array.from(document.querySelectorAll('#lista-presenca input:checked')).map(el => el.value);
-            let presentes = db.voluntarios.filter(v => selecionadosIds.includes(v.id));
+            avisosAtuais = [];
 
-            if (presentes.length < 4) return alert("Precisamos de pelo menos 4 pessoas para cobrir os 4 hospitais!");
+            const nomesSelecionados = Array.from(
+                document.querySelectorAll("#lista-presenca input:checked")
+            ).map(item => item.value);
 
-            // Injetar histórico
-            presentes.forEach(p => {
-                const ultimaVez = [...db.historico].reverse().find(h => h.voluntario_id === p.id);
-                p.ultimoHospital = ultimaVez ? ultimaVez.hospital : "";
-            });
+            const presentes = db.voluntarios
+                .filter(voluntario => nomesSelecionados.includes(voluntario.nome))
+                .map(voluntario => ({
+                    ...voluntario,
+                    ultimoHospital: ultimoHospitalDo(voluntario)
+                }));
 
-            // Embaralhar
-            presentes.sort(() => Math.random() - 0.5);
-
-            // Separar motoristas
-            let motoristas = presentes.filter(v => v.carro.toUpperCase() === 'SIM');
-            let passageiros = presentes.filter(v => v.carro.toUpperCase() !== 'SIM');
-
-            // Preparar Hospitais
-            let escala = {
-                "Santa Casa de Mogi Guaçu": [],
-                "Santa Casa de Mogi Mirim": [],
-                "Hospital São Francisco": [],
-                "Hospital 22 de Outubro": []
-            };
-
-            // 1. Garantir 1 motorista em cada hospital primeiro (se houver)
-            HOSPITAIS.forEach(h => {
-                if(motoristas.length > 0) escala[h.nome].push(motoristas.shift());
-            });
-
-            // 2. Se sobrou motorista, vira passageiro para o resto da conta
-            let restantes = [...motoristas, ...passageiros];
-            restantes.sort(() => Math.random() - 0.5);
-
-            // 3. Garantir que cada hospital tenha pelo menos 1 pessoa (caso não houvesse motorista para todos)
-            HOSPITAIS.forEach(h => {
-                if(escala[h.nome].length === 0 && restantes.length > 0) {
-                    escala[h.nome].push(restantes.shift());
-                }
-            });
-
-            // 4. Distribuir o resto uniformemente
-            let i = 0;
-            while(restantes.length > 0) {
-                escala[HOSPITAIS[i % 4].nome].push(restantes.shift());
-                i++;
+            if (presentes.length < 8) {
+                alert(
+                    "Para atender os quatro hospitais com equipes de pelo menos duas pessoas, selecione no mínimo 8 voluntários."
+                );
+                return;
             }
 
-            exibirHTML(escala);
+            const homens = presentes.filter(pessoa => normalizar(pessoa.sexo) === "M");
+            const mulheres = presentes.filter(pessoa => normalizar(pessoa.sexo) === "F");
+            const veteranos = presentes.filter(pessoa => normalizar(pessoa.experiencia) === "VETERANO");
+            const novatos = presentes.filter(pessoa => normalizar(pessoa.experiencia) === "NOVATO");
+
+            if (!homens.length || !mulheres.length) {
+                alert("Não é possível formar equipes mistas: é necessário ter homens e mulheres presentes.");
+                return;
+            }
+
+            if (!veteranos.length || !novatos.length) {
+                alert("Não é possível garantir veterano e novato: selecione pelo menos um de cada.");
+                return;
+            }
+
+            const resultadoDuplas = criarDuplasMistas(presentes);
+            const equipes = resultadoDuplas.equipes;
+
+            if (equipes.length < 4) {
+                alert(
+                    "Não foi possível formar ao menos quatro equipes com homem, mulher, veterano e novato. Revise as presenças selecionadas."
+                );
+                return;
+            }
+
+            const naoAlocados = adicionarRestantes(equipes, resultadoDuplas.restantes);
+
+            if (naoAlocados.length) {
+                avisosAtuais.push(
+                    `Não foi possível alocar automaticamente: ${naoAlocados.map(p => p.nome).join(", ")}.`
+                );
+            }
+
+            validarSempreJunto(equipes);
+
+            const distribuicao = distribuirHospitais(equipes);
+
+            escalaAtual = distribuicao;
+            mostrarAvisos();
+            mostrarEscala();
         }
 
-        function exibirHTML(escala) {
-            const container = document.getElementById('equipes-hospitais');
-            const resDiv = document.getElementById('resultado');
-            container.innerHTML = "";
-            resDiv.classList.remove('hidden');
-            resDiv.scrollIntoView({ behavior: 'smooth' });
+        function mostrarAvisos() {
+            const caixa = document.getElementById("avisos");
 
-            HOSPITAIS.forEach(h => {
-                const pessoas = escala[h.nome];
-                const nomesLI = pessoas.map(p => {
-                    const repetido = p.ultimoHospital === h.nome ? '<span class="text-[10px] text-red-500 font-bold ml-1 italic">(Repetido)</span>' : '';
-                    return `<li class="py-1 border-b border-black/5 text-sm font-medium">
-                        • ${p.apelido} ${p.carro.toUpperCase()==='SIM'?'🚗':''} ${repetido}
-                    </li>`;
+            if (!avisosAtuais.length) {
+                caixa.classList.add("hidden");
+                caixa.innerHTML = "";
+                return;
+            }
+
+            caixa.classList.remove("hidden");
+
+            caixa.innerHTML = `
+                <h3 class="font-black text-yellow-800 mb-2">⚠️ Pontos para revisar</h3>
+                <ul class="list-disc ml-5 text-sm text-yellow-900 space-y-1">
+                    ${avisosAtuais.map(aviso => `<li>${aviso}</li>`).join("")}
+                </ul>
+            `;
+        }
+
+        function etiquetaPessoa(pessoa) {
+            const transporte = normalizar(pessoa.transporte);
+
+            const transporteTexto = transporte === "CARRO"
+                ? "🚗 Carro"
+                : transporte === "MOTO"
+                    ? "🏍️ Moto"
+                    : "👣 Carona";
+
+            const experienciaTexto = normalizar(pessoa.experiencia) === "VETERANO"
+                ? "⭐ Veterano"
+                : "🌱 Novato";
+
+            const repetiu = normalizar(pessoa.ultimoHospital) !== ""
+                ? pessoa.ultimoHospital
+                : "";
+
+            return `
+                <li class="py-3 border-b border-black/10 last:border-0">
+                    <div class="font-bold text-gray-800">
+                        ${pessoa.nome}
+                    </div>
+
+                    <div class="mt-1">
+                        <span class="tag bg-gray-200 text-gray-700">
+                            ${pessoa.sexo === "M" ? "👨 Homem" : "👩 Mulher"}
+                        </span>
+
+                        <span class="tag bg-blue-100 text-blue-800">
+                            ${transporteTexto}
+                        </span>
+
+                        <span class="tag bg-yellow-100 text-yellow-800">
+                            ${experienciaTexto}
+                        </span>
+
+                        ${repetiu ? `
+                            <span class="tag bg-gray-100 text-gray-600">
+                                Último: ${repetiu}
+                            </span>
+                        ` : ""}
+                    </div>
+                </li>
+            `;
+        }
+
+        function mostrarEscala() {
+            const area = document.getElementById("equipes-hospitais");
+            const resultado = document.getElementById("resultado");
+
+            area.innerHTML = "";
+
+            escalaAtual.forEach(item => {
+                const equipesHTML = item.equipes.map((equipe, indice) => {
+                    const possuiCarro = temCarro(equipe);
+
+                    return `
+                        <div class="bg-white/80 rounded-xl p-3 mb-3">
+                            <div class="flex justify-between items-center mb-2">
+                                <strong class="text-sm">
+                                    Equipe ${indice + 1}
+                                </strong>
+
+                                <span class="text-xs font-bold ${possuiCarro ? "text-emerald-700" : "text-red-600"}">
+                                    ${possuiCarro ? "🚗 Tem carro" : "⚠️ Sem carro"}
+                                </span>
+                            </div>
+
+                            <ul>
+                                ${equipe.map(etiquetaPessoa).join("")}
+                            </ul>
+                        </div>
+                    `;
                 }).join("");
 
-                container.innerHTML += `
-                    <div class="hospital-card card p-4 ${h.cor} ${h.bg}">
-                        <h3 class="text-xs font-black uppercase text-gray-500 mb-2">${h.nome}</h3>
-                        <ul class="space-y-1">${nomesLI}</ul>
+                area.innerHTML += `
+                    <div class="hospital-card card p-4 ${item.hospital.cor} ${item.hospital.fundo}">
+                        <h3 class="font-black text-sm text-gray-800 uppercase mb-3">
+                            ${item.hospital.nome}
+                        </h3>
+
+                        ${equipesHTML || "<p class='text-sm text-gray-500'>Sem equipe.</p>"}
                     </div>
                 `;
             });
+
+            resultado.classList.remove("hidden");
+            resultado.scrollIntoView({ behavior: "smooth" });
         }
 
         function copiarWhatsApp() {
-            let texto = `*ESCALA UAI - PLANTÃO DA ALEGRIA* 🤡\n\n`;
-            HOSPITAIS.forEach(h => {
-                const card = Array.from(document.querySelectorAll('.hospital-card')).find(c => c.innerText.includes(h.nome.toUpperCase()));
-                if(card) {
-                    texto += `*${h.nome.toUpperCase()}*\n`;
-                    card.querySelectorAll('li').forEach(li => {
-                        texto += li.innerText.replace('(Repetido)', '').trim() + "\n";
+            let texto = "*ESCALA UAI — PLANTÃO DA ALEGRIA* 🤡\n";
+            texto += `*Data:* ${document.getElementById("data-plantao").value}\n\n`;
+
+            escalaAtual.forEach(item => {
+                texto += `*${item.hospital.nome.toUpperCase()}*\n`;
+
+                item.equipes.forEach((equipe, indice) => {
+                    texto += `Equipe ${indice + 1}:\n`;
+
+                    equipe.forEach(pessoa => {
+                        const carro = normalizar(pessoa.transporte) === "CARRO" ? " 🚗" : "";
+                        const experiencia = normalizar(pessoa.experiencia) === "VETERANO"
+                            ? " (Veterano)"
+                            : " (Novato)";
+
+                        texto += `• ${pessoa.nome}${carro}${experiencia}\n`;
                     });
+
                     texto += "\n";
-                }
+                });
+
+                texto += "\n";
             });
+
             texto += "_Unidade de Alegria Intensiva_ ✨";
-            navigator.clipboard.writeText(texto).then(() => alert("Copiado com sucesso!"));
+
+            navigator.clipboard.writeText(texto)
+                .then(() => alert("Escala copiada para o WhatsApp!"))
+                .catch(() => alert("Não foi possível copiar automaticamente."));
         }
 
-        document.getElementById('data-plantao').addEventListener('change', renderizarPresenca);
-        init();
+        function baixarHistorico() {
+            if (!escalaAtual.length) {
+                alert("Gere uma escala antes de baixar o histórico.");
+                return;
+            }
+
+            const data = document.getElementById("data-plantao").value;
+
+            const linhas = [
+                ["data", "hospital", "equipe", "voluntario", "sexo", "experiencia", "transporte"]
+            ];
+
+            db.historico.forEach(item => {
+                linhas.push([
+                    item.data,
+                    item.hospital,
+                    item.equipe,
+                    item.voluntario,
+                    item.sexo,
+                    item.experiencia,
+                    item.transporte
+                ]);
+            });
+
+            escalaAtual.forEach(item => {
+                item.equipes.forEach((equipe, indice) => {
+                    equipe.forEach(pessoa => {
+                        linhas.push([
+                            data,
+                            item.hospital.nome,
+                            `Equipe ${indice + 1}`,
+                            pessoa.nome,
+                            pessoa.sexo,
+                            pessoa.experiencia,
+                            pessoa.transporte
+                        ]);
+                    });
+                });
+            });
+
+            const conteudo = linhas
+                .map(linha => linha.map(escaparCSV).join(";"))
+                .join("\n");
+
+            const arquivo = new Blob(
+                ["\uFEFF" + conteudo],
+                { type: "text/csv;charset=utf-8;" }
+            );
+
+            const link = document.createElement("a");
+
+            link.href = URL.createObjectURL(arquivo);
+            link.download = "historico_escalas_atualizado.csv";
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            URL.revokeObjectURL(link.href);
+
+            alert(
+                "Histórico baixado! Substitua o arquivo dados/historico_escalas.csv pelo arquivo baixado e envie-o ao GitHub."
+            );
+        }
+
+        document
+            .getElementById("data-plantao")
+            .addEventListener("change", renderizarPresenca);
+
+        iniciar();
     </script>
 </body>
 </html>
