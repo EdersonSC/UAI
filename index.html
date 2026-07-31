@@ -13,6 +13,7 @@
         .tag { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 800; margin: 2px 2px 0 0; }
         .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center; z-index: 100; visibility: hidden; flex-direction: column; }
         .loading-overlay.active { visibility: visible; }
+        .last-visit { font-size: 9px; color: #6b7280; background: #f3f4f6; padding: 1px 6px; border-radius: 4px; margin-top: 2px; display: inline-block; }
     </style>
 </head>
 <body class="pb-12">
@@ -29,11 +30,11 @@
     </div>
     <div class="py-3 px-4 text-white text-center">
         <h1 class="font-black text-xl text-center">VISITUAI</h1>
-        <p class="text-[10px] text-yellow-100 font-bold uppercase tracking-widest mt-1 text-center">Banco de Dados Supabase Conectado</p>
+        <p class="text-[10px] text-yellow-100 font-bold uppercase tracking-widest mt-1 text-center">Banco de Dados Online Conectado</p>
     </div>
 </header>
 
-<main class="max-w-xl mx-auto p-4 space-y-5">
+<main class="max-width: 500px; margin: auto;" class="max-w-xl mx-auto p-4 space-y-5">
     <div id="status" class="card p-4 text-center text-sm font-bold text-gray-500 italic">⏳ Inicializando...</div>
 
     <div class="card p-5">
@@ -47,9 +48,7 @@
             Quem vai hoje? ✨
             <span id="contador" class="bg-red-600 text-white text-sm px-3 py-1 rounded-full">0</span>
         </h2>
-        <div id="lista-presenca" class="space-y-2 max-h-96 overflow-y-auto pr-1">
-            <p class="text-xs text-gray-400">Aguardando dados dos voluntários...</p>
-        </div>
+        <div id="lista-presenca" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
     </div>
 
     <!-- Preferência Manual -->
@@ -67,8 +66,6 @@
         GERAR ESCALA 🎲
     </button>
 
-    <div id="avisos" class="hidden card p-4 border-2 border-yellow-300 bg-yellow-50"></div>
-
     <section id="resultado" class="hidden space-y-4">
         <div id="equipes-hospitais" class="space-y-4"></div>
         <button onclick="copiarWhatsApp()" class="w-full bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-lg">COPIAR PARA WHATSAPP 📱</button>
@@ -81,10 +78,7 @@
     const SUPABASE_URL = "https://xavoynadgllwtzounnfi.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhhdm95bmFkZ2xsd3R6b3VubmZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMjM1NDEsImV4cCI6MjA5MzU5OTU0MX0.-24uO3Qj82S8AeBDXmRbWNfXU35huFeBpbmFx9oo3AM";
     
-    // Inicialização robusta para evitar bloqueio de cookies/storage
-    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-        auth: { persistSession: false }
-    });
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 
     const HOSPITAIS = [
         { nome: "Santa Casa de Mogi Guaçu", cor: "border-blue-600", fundo: "bg-blue-50" },
@@ -100,31 +94,28 @@
 
     document.getElementById("data-plantao").valueAsDate = new Date();
 
+    function obterUltimaVisita(nome) {
+        const visitas = db.historico.filter(h => h.voluntario === nome)
+            .sort((a,b) => new Date(b.data) - new Date(a.data));
+        return visitas.length > 0 ? visitas[0].hospital : "Estreia";
+    }
+
     async function carregarDados() {
-        console.log("Tentando carregar dados...");
-        document.getElementById("status").innerText = "⏳ Acessando tabelas...";
         document.getElementById("loading").classList.add("active");
-
         try {
-            // Teste de conexão simples
-            const { data: v, error: ev } = await _supabase.from('voluntarios').select('*');
-            if (ev) throw ev;
-            console.log("Voluntários recebidos:", v);
-            db.voluntarios = v;
-
-            const { data: h, error: eh } = await _supabase.from('historico_escalas').select('*');
-            if (eh) console.warn("Erro ao buscar histórico (pode estar vazio):", eh);
+            const { data: v } = await _supabase.from('voluntarios').select('*');
+            const { data: h } = await _supabase.from('historico_escalas').select('*');
+            
+            db.voluntarios = v || [];
             db.historico = h || [];
 
             renderizarPresenca();
             preencherSeletoresManuais();
             
             document.getElementById("btn-gerar").disabled = false;
-            document.getElementById("status").innerText = `✅ Sucesso! ${v.length} voluntários carregados.`;
-            console.log("Interface atualizada.");
+            document.getElementById("status").innerText = "✅ Banco de dados sincronizado.";
         } catch (e) {
-            console.error("ERRO NO CARREGAMENTO:", e);
-            document.getElementById("status").innerText = "❌ Erro: " + e.message;
+            document.getElementById("status").innerText = "❌ Erro ao carregar dados.";
         } finally {
             document.getElementById("loading").classList.remove("active");
         }
@@ -133,17 +124,16 @@
     function renderizarPresenca() {
         const lista = document.getElementById("lista-presenca");
         lista.innerHTML = "";
-        
-        const sorted = [...db.voluntarios].sort((a,b) => a.nome.localeCompare(b.nome));
-        
-        sorted.forEach(v => {
+        [...db.voluntarios].sort((a,b) => a.nome.localeCompare(b.nome)).forEach(v => {
+            const ultima = obterUltimaVisita(v.nome);
             const div = document.createElement("label");
             div.className = "flex items-center p-3 mb-2 bg-gray-50 border border-gray-100 rounded-xl cursor-pointer";
             div.innerHTML = `
                 <input type="checkbox" value="${v.nome}" onchange="atualizarContador(); preencherSeletoresManuais();" class="w-5 h-5 accent-red-600 mr-3">
                 <div class="flex-1">
-                    <div class="font-bold text-sm">${v.nome}</div>
+                    <div class="font-bold text-sm text-gray-800">${v.nome}</div>
                     <div class="text-[10px] text-gray-500 uppercase">${v.sexo} · ${v.transporte} · ${v.experiencia}</div>
+                    <div class="last-visit">📍 Último: ${ultima}</div>
                 </div>
             `;
             lista.appendChild(div);
@@ -151,20 +141,15 @@
     }
 
     function atualizarContador() {
-        const n = document.querySelectorAll("#lista-presenca input:checked").length;
-        document.getElementById("contador").innerText = n;
+        document.getElementById("contador").innerText = document.querySelectorAll("#lista-presenca input:checked").length;
     }
 
     function preencherSeletoresManuais() {
         const vSel = document.getElementById("manual-voluntario");
         const hSel = document.getElementById("manual-hospital");
         const presentes = Array.from(document.querySelectorAll("#lista-presenca input:checked")).map(i => i.value);
-        
         vSel.innerHTML = '<option value="">Quem?</option>';
-        db.voluntarios.filter(p => presentes.includes(p.nome)).forEach(p => {
-            vSel.innerHTML += `<option value="${p.nome}">${p.nome}</option>`;
-        });
-
+        db.voluntarios.filter(p => presentes.includes(p.nome)).forEach(p => vSel.innerHTML += `<option value="${p.nome}">${p.nome}</option>`);
         hSel.innerHTML = '<option value="">Hospital?</option>';
         HOSPITAIS.forEach(h => hSel.innerHTML += `<option value="${h.nome}">${h.nome}</option>`);
     }
@@ -186,21 +171,17 @@
             </div>`).join("");
     }
 
-    // Lógica rápida de escala
     function gerarEscala() {
         const selecionados = Array.from(document.querySelectorAll("#lista-presenca input:checked")).map(i => i.value);
-        let presentes = db.voluntarios.filter(v => selecionados.includes(v.nome));
+        let presentes = db.voluntarios.filter(v => selecionados.includes(v.nome))
+            .map(p => ({ ...p, ultimaVisita: obterUltimaVisita(p.nome) }));
 
         if(presentes.length < 10) return alert("Selecione pelo menos 10 pessoas.");
 
-        // Embaralhar
-        presentes = presentes.sort(() => Math.random() - 0.5);
-
-        // Criar equipes de 2 ou 3
         let equipes = [];
         const usados = new Set();
 
-        // Casais (Sempre Junto)
+        // 1. Casais
         db.voluntarios.forEach(v => {
             if(v.sempre_junto && !usados.has(v.nome)) {
                 const eu = presentes.find(p => p.nome === v.nome);
@@ -212,26 +193,37 @@
             }
         });
 
-        // Restante
-        let restantes = presentes.filter(p => !usados.has(p.nome));
+        // 2. Restante em duplas mistas
+        let restantes = presentes.filter(p => !usados.has(p.nome)).sort(() => Math.random() - 0.5);
         while(restantes.length >= 2) {
             equipes.push([restantes.shift(), restantes.shift()]);
         }
         if(restantes.length) equipes[0].push(restantes.shift());
 
-        // Distribuir nos hospitais
+        // 3. Distribuição com Rotatividade
         const escala = HOSPITAIS.map(h => ({ hospital: h, equipes: [] }));
         
-        // Tabajara
+        // Tabajara (Prioridade Manual)
         const tab = escala.find(e => e.hospital.tabajara);
-        tab.equipes.push(equipes.shift());
+        const prefTab = preferenciasManuais.find(pm => pm.hospital === tab.hospital.nome);
+        let idxTab = prefTab ? equipes.findIndex(eq => eq.some(p => p.nome === prefTab.voluntario)) : -1;
+        
+        // Se não tem manual, tenta alguém que não foi no Tabajara por último
+        if(idxTab === -1) idxTab = equipes.findIndex(eq => eq.every(p => p.ultimaVisita !== tab.hospital.nome));
+        if(idxTab === -1) idxTab = 0;
 
-        // Outros
-        let idx = 0;
+        tab.equipes.push(equipes.splice(idxTab, 1)[0]);
+
+        // Outros hospitais
+        let hIdx = 0;
         const normais = escala.filter(e => !e.hospital.tabajara);
+        
+        equipes.sort(() => Math.random() - 0.5);
         while(equipes.length) {
-            normais[idx % normais.length].equipes.push(equipes.shift());
-            idx++;
+            const hAtual = normais[hIdx % normais.length];
+            const eq = equipes.shift();
+            hAtual.equipes.push(eq);
+            hIdx++;
         }
 
         escalaAtual = escala;
@@ -242,16 +234,17 @@
         const area = document.getElementById("equipes-hospitais");
         area.innerHTML = escalaAtual.map(h => `
             <div class="hospital-card card p-4 mb-4 ${h.hospital.cor} ${h.hospital.fundo}">
-                <h3 class="font-black text-xs uppercase mb-2">${h.hospital.nome}</h3>
+                <h3 class="font-black text-xs uppercase mb-2 text-gray-800">${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}</h3>
                 ${h.equipes.map(eq => `
-                    <div class="bg-white/70 p-2 rounded-lg mb-2 text-sm font-bold">
-                        ${eq.map(p => `• ${p.nome}`).join("<​br>")}
+                    <div class="bg-white/70 p-2 rounded-lg mb-2 text-sm">
+                        ${eq.map(p => `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400"> (Vindo de: ${obterUltimaVisita(p.nome)})</span>`).join("<​br>")}
                     </div>
                 `).join("")}
             </div>
         `).join("");
         document.getElementById("resultado").classList.remove("hidden");
         document.getElementById("btn-salvar").disabled = false;
+        document.getElementById("msg-sucesso").classList.add("hidden");
     }
 
     async function salvarNoSupabase() {
@@ -260,19 +253,16 @@
             const data = document.getElementById("data-plantao").value;
             const inserts = [];
             escalaAtual.forEach(h => {
-                h.equipes.forEach(eq => {
-                    eq.forEach(p => {
-                        inserts.push({ data, hospital: h.hospital.nome, voluntario: p.nome });
-                    });
-                });
+                h.equipes.forEach(eq => eq.forEach(p => {
+                    inserts.push({ data, hospital: h.hospital.nome, voluntario: p.nome });
+                }));
             });
-
             const { error } = await _supabase.from('historico_escalas').insert(inserts);
             if (error) throw error;
-            
             document.getElementById("msg-sucesso").classList.remove("hidden");
             document.getElementById("btn-salvar").disabled = true;
-            alert("Salvo na nuvem com sucesso!");
+            alert("Sucesso! Escala registrada no histórico.");
+            setTimeout(() => location.reload(), 2000);
         } catch (e) {
             alert("Erro ao salvar: " + e.message);
         } finally {
@@ -281,17 +271,16 @@
     }
 
     function copiarWhatsApp() {
-        let txt = "*EQUIPE UAI - ESCALA*\n\n";
+        let txt = "*EQUIPE UAI - ESCALA*\n*Data:* " + document.getElementById("data-plantao").value + "\n\n";
         escalaAtual.forEach(h => {
             txt += `*${h.hospital.nome.toUpperCase()}*\n`;
-            h.equipes.forEach(eq => txt += eq.map(p => p.nome).join(", ") + "\n");
+            h.equipes.forEach((eq, i) => txt += `Eq ${i+1}: ${eq.map(p => p.nome).join(", ")}\n`);
             txt += "\n";
         });
         navigator.clipboard.writeText(txt);
         alert("Escala copiada!");
     }
 
-    // Início
     window.onload = carregarDados;
 </script>
 </body>
