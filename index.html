@@ -99,6 +99,27 @@
             .sort((a,b) => new Date(b.data) - new Date(a.data));
         return visitas.length > 0 ? visitas[0].hospital : "Estreia";
     }
+    function normalizarTexto(valor) {
+    return String(valor || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toUpperCase();
+    }
+    
+    function obterUltimaVisita(nome) {
+        const visitas = db.historico
+            .filter(item => normalizarTexto(item.voluntario) === normalizarTexto(nome))
+            .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+    
+        return visitas.length ? visitas[0].hospital : "";
+    }
+    
+    function equipePodeIrParaHospital(equipe, hospital) {
+        return equipe.every(pessoa =>
+            normalizarTexto(obterUltimaVisita(pessoa.nome)) !== normalizarTexto(hospital)
+        );
+    }
 
     async function carregarDados() {
         document.getElementById("loading").classList.add("active");
@@ -171,65 +192,148 @@
             </div>`).join("");
     }
 
-    function gerarEscala() {
-        const selecionados = Array.from(document.querySelectorAll("#lista-presenca input:checked")).map(i => i.value);
-        let presentes = db.voluntarios.filter(v => selecionados.includes(v.nome))
-            .map(p => ({ ...p, ultimaVisita: obterUltimaVisita(p.nome) }));
+   function gerarEscala() {
+    const selecionados = Array.from(
+        document.querySelectorAll("#lista-presenca input:checked")
+    ).map(input => input.value);
 
-        if(presentes.length < 10) return alert("Selecione pelo menos 10 pessoas.");
+    let presentes = db.voluntarios
+        .filter(v => selecionados.includes(v.nome))
+        .map(v => ({
+            ...v,
+            ultimaVisita: obterUltimaVisita(v.nome)
+        }));
 
-        let equipes = [];
-        const usados = new Set();
+    if (presentes.length < 10) {
+        alert("Selecione pelo menos 10 pessoas.");
+        return;
+    }
 
-        // 1. Casais
-        db.voluntarios.forEach(v => {
-            if(v.sempre_junto && !usados.has(v.nome)) {
-                const eu = presentes.find(p => p.nome === v.nome);
-                const par = presentes.find(p => p.nome === v.sempre_junto);
-                if(eu && par) {
-                    equipes.push([eu, par]);
-                    usados.add(eu.nome); usados.add(par.nome);
-                }
+    presentes = presentes.sort(() => Math.random() - 0.5);
+
+    const equipes = [];
+    const usados = new Set();
+
+    // 1. Mantém os pares "Sempre Junto" unidos.
+    db.voluntarios.forEach(v => {
+        if (!v.sempre_junto || usados.has(normalizarTexto(v.nome))) return;
+
+        const pessoa = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.nome));
+        const parceiro = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.sempre_junto));
+
+        if (pessoa && parceiro) {
+            equipes.push([pessoa, parceiro]);
+            usados.add(normalizarTexto(pessoa.nome));
+            usados.add(normalizarTexto(parceiro.nome));
+        }
+    });
+
+    // 2. Cria as demais duplas, tentando priorizar homem + mulher.
+    let restantes = presentes.filter(p => !usados.has(normalizarTexto(p.nome)));
+
+    while (restantes.length >= 2) {
+        const primeira = restantes.shift();
+
+        let indiceParceiro = restantes.findIndex(p =>
+            normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
+        );
+
+        if (indiceParceiro === -1) indiceParceiro = 0;
+
+        const segunda = restantes.splice(indiceParceiro, 1)[0];
+        equipes.push([primeira, segunda]);
+    }
+
+    // Se houver uma pessoa sobrando, forma um trio.
+    if (restantes.length) {
+        equipes[0].push(restantes.shift());
+    }
+
+    if (equipes.length < 5) {
+        alert("Não foi possível formar equipes suficientes para os 5 hospitais.");
+        return;
+    }
+
+    const escala = HOSPITAIS.map(hospital => ({
+        hospital,
+        equipes: []
+    }));
+
+    const tabajara = escala.find(item => item.hospital.tabajara);
+    const hospitaisNormais = escala.filter(item => !item.hospital.tabajara);
+
+    // 3. Tabajara: exatamente uma dupla, preferencialmente homem + mulher,
+    // e em que nenhum dos dois tenha ido ao Tabajara na última visita.
+    const preferenciaTabajara = preferenciasManuais.find(p =>
+        normalizarTexto(p.hospital) === normalizarTexto("Hospital Tabajara")
+    );
+
+    let indiceTabajara = -1;
+
+    if (preferenciaTabajara) {
+        indiceTabajara = equipes.findIndex(equipe =>
+            equipe.length === 2 &&
+            equipe.some(p => normalizarTexto(p.nome) === normalizarTexto(preferenciaTabajara.voluntario))
+        );
+    }
+
+    if (indiceTabajara === -1) {
+        indiceTabajara = equipes.findIndex(equipe =>
+            equipe.length === 2 &&
+            equipe.some(p => normalizarTexto(p.sexo) === "M") &&
+            equipe.some(p => normalizarTexto(p.sexo) === "F") &&
+            equipePodeIrParaHospital(equipe, "Hospital Tabajara")
+        );
+    }
+
+    // Caso não exista dupla ideal, ainda garante que Tabajara receba apenas uma dupla.
+    if (indiceTabajara === -1) {
+        indiceTabajara = equipes.findIndex(equipe => equipe.length === 2);
+    }
+
+    if (indiceTabajara === -1) {
+        alert("Não foi possível criar uma dupla para o Hospital Tabajara.");
+        return;
+    }
+
+    tabajara.equipes.push(equipes.splice(indiceTabajara, 1)[0]);
+
+    // 4. Preferências manuais dos hospitais normais.
+    preferenciasManuais
+        .filter(p => normalizarTexto(p.hospital) !== normalizarTexto("Hospital Tabajara"))
+        .forEach(preferencia => {
+            const destino = hospitaisNormais.find(item =>
+                normalizarTexto(item.hospital.nome) === normalizarTexto(preferencia.hospital)
+            );
+
+            const indiceEquipe = equipes.findIndex(equipe =>
+                equipe.some(p => normalizarTexto(p.nome) === normalizarTexto(preferencia.voluntario))
+            );
+
+            if (destino && indiceEquipe !== -1) {
+                destino.equipes.push(equipes.splice(indiceEquipe, 1)[0]);
             }
         });
 
-        // 2. Restante em duplas mistas
-        let restantes = presentes.filter(p => !usados.has(p.nome)).sort(() => Math.random() - 0.5);
-        while(restantes.length >= 2) {
-            equipes.push([restantes.shift(), restantes.shift()]);
-        }
-        if(restantes.length) equipes[0].push(restantes.shift());
+    // 5. Distribui o restante priorizando hospitais diferentes da última visita.
+    equipes.forEach(equipe => {
+        let destinosPossiveis = hospitaisNormais.filter(destino =>
+            equipePodeIrParaHospital(equipe, destino.hospital.nome)
+        );
 
-        // 3. Distribuição com Rotatividade
-        const escala = HOSPITAIS.map(h => ({ hospital: h, equipes: [] }));
-        
-        // Tabajara (Prioridade Manual)
-        const tab = escala.find(e => e.hospital.tabajara);
-        const prefTab = preferenciasManuais.find(pm => pm.hospital === tab.hospital.nome);
-        let idxTab = prefTab ? equipes.findIndex(eq => eq.some(p => p.nome === prefTab.voluntario)) : -1;
-        
-        // Se não tem manual, tenta alguém que não foi no Tabajara por último
-        if(idxTab === -1) idxTab = equipes.findIndex(eq => eq.every(p => p.ultimaVisita !== tab.hospital.nome));
-        if(idxTab === -1) idxTab = 0;
-
-        tab.equipes.push(equipes.splice(idxTab, 1)[0]);
-
-        // Outros hospitais
-        let hIdx = 0;
-        const normais = escala.filter(e => !e.hospital.tabajara);
-        
-        equipes.sort(() => Math.random() - 0.5);
-        while(equipes.length) {
-            const hAtual = normais[hIdx % normais.length];
-            const eq = equipes.shift();
-            hAtual.equipes.push(eq);
-            hIdx++;
+        // Se não houver alternativa sem repetição, usa o hospital menos ocupado.
+        if (!destinosPossiveis.length) {
+            destinosPossiveis = hospitaisNormais;
         }
 
-        escalaAtual = escala;
-        mostrarEscala();
-    }
+        destinosPossiveis.sort((a, b) => a.equipes.length - b.equipes.length);
 
+        destinosPossiveis[0].equipes.push(equipe);
+    });
+
+    escalaAtual = escala;
+    mostrarEscala();
+}
     function mostrarEscala() {
         const area = document.getElementById("equipes-hospitais");
         area.innerHTML = escalaAtual.map(h => `
