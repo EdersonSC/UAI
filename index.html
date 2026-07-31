@@ -228,26 +228,94 @@
         }
     });
 
-    // 2. Cria as demais duplas, tentando priorizar homem + mulher.
-    let restantes = presentes.filter(p => !usados.has(normalizarTexto(p.nome)));
+   // 2. Cria as demais duplas.
+// Prioridades:
+// 1) Nunca colocar pessoas marcadas em "nunca_junto" na mesma equipe.
+// 2) Preferir homem + mulher.
+// 3) Preferir Veterano + Novato.
+let restantes = presentes.filter(p => !usados.has(normalizarTexto(p.nome)));
 
-    while (restantes.length >= 2) {
-        const primeira = restantes.shift();
+function listaNuncaJunto(pessoa) {
+    return String(pessoa.nunca_junto || "")
+        .split(",")
+        .map(nome => normalizarTexto(nome))
+        .filter(Boolean);
+}
 
-        let indiceParceiro = restantes.findIndex(p =>
-            normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
+function pessoasPodemFicarJuntas(pessoa1, pessoa2) {
+    const nome1 = normalizarTexto(pessoa1.nome);
+    const nome2 = normalizarTexto(pessoa2.nome);
+
+    const bloqueiosPessoa1 = listaNuncaJunto(pessoa1);
+    const bloqueiosPessoa2 = listaNuncaJunto(pessoa2);
+
+    // Verifica nos dois sentidos:
+    // Se A bloqueia B, ou B bloqueia A, eles não formam equipe.
+    return !bloqueiosPessoa1.includes(nome2) &&
+           !bloqueiosPessoa2.includes(nome1);
+}
+
+while (restantes.length >= 2) {
+    const primeira = restantes.shift();
+
+    // Melhor opção:
+    // sexo diferente + experiência diferente + não estão em nunca_junto.
+    let indiceParceiro = restantes.findIndex(pessoa =>
+        pessoasPodemFicarJuntas(primeira, pessoa) &&
+        normalizarTexto(pessoa.sexo) !== normalizarTexto(primeira.sexo) &&
+        normalizarTexto(pessoa.experiencia) !== normalizarTexto(primeira.experiencia)
+    );
+
+    // Segunda opção:
+    // sexo diferente + não estão em nunca_junto.
+    if (indiceParceiro === -1) {
+        indiceParceiro = restantes.findIndex(pessoa =>
+            pessoasPodemFicarJuntas(primeira, pessoa) &&
+            normalizarTexto(pessoa.sexo) !== normalizarTexto(primeira.sexo)
         );
-
-        if (indiceParceiro === -1) indiceParceiro = 0;
-
-        const segunda = restantes.splice(indiceParceiro, 1)[0];
-        equipes.push([primeira, segunda]);
     }
 
-    // Se houver uma pessoa sobrando, forma um trio.
-    if (restantes.length) {
-        equipes[0].push(restantes.shift());
+    // Terceira opção:
+    // qualquer pessoa permitida pela regra nunca_junto.
+    if (indiceParceiro === -1) {
+        indiceParceiro = restantes.findIndex(pessoa =>
+            pessoasPodemFicarJuntas(primeira, pessoa)
+        );
     }
+
+    // Situação excepcional: não existe outra combinação possível.
+    // O sistema cria a dupla para não impedir a geração da escala.
+    if (indiceParceiro === -1) {
+        console.warn(
+            `Não foi possível respeitar "nunca_junto" para ${primeira.nome}. ` +
+            "Revise a escala gerada manualmente."
+        );
+        indiceParceiro = 0;
+    }
+
+    const segunda = restantes.splice(indiceParceiro, 1)[0];
+    equipes.push([primeira, segunda]);
+}
+
+// Se houver uma pessoa sobrando, forma um trio.
+// Ela é adicionada, de preferência, a uma equipe que não tenha conflito.
+if (restantes.length) {
+    const sobra = restantes.shift();
+
+    let indiceEquipeSegura = equipes.findIndex(equipe =>
+        equipe.every(pessoa => pessoasPodemFicarJuntas(sobra, pessoa))
+    );
+
+    if (indiceEquipeSegura === -1) {
+        console.warn(
+            `Não foi possível respeitar "nunca_junto" para a sobra: ${sobra.nome}. ` +
+            "Revise a escala gerada manualmente."
+        );
+        indiceEquipeSegura = 0;
+    }
+
+    equipes[indiceEquipeSegura].push(sobra);
+}
 
     if (equipes.length < 5) {
         alert("Não foi possível formar equipes suficientes para os 5 hospitais.");
