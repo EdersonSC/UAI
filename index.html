@@ -34,7 +34,7 @@
     </div>
 </header>
 
-<main class="max-width: 500px; margin: auto;" class="max-w-xl mx-auto p-4 space-y-5">
+<main class="max-w-xl mx-auto p-4 space-y-5">
     <div id="status" class="card p-4 text-center text-sm font-bold text-gray-500 italic">⏳ Inicializando...</div>
 
     <div class="card p-5">
@@ -42,7 +42,6 @@
         <input type="date" id="data-plantao" class="w-full p-3 rounded-xl bg-red-50 border-2 border-red-100 font-bold outline-none">
     </div>
 
-    <!-- Lista de Presença -->
     <div class="card p-5">
         <h2 class="font-black text-gray-800 text-lg flex justify-between items-center mb-4">
             Quem vai hoje? ✨
@@ -51,7 +50,6 @@
         <div id="lista-presenca" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
     </div>
 
-    <!-- Preferência Manual -->
     <div class="card p-5">
         <h2 class="font-black text-gray-800 text-lg mb-2 text-center">Preferência Manual 📍</h2>
         <div class="grid grid-cols-1 gap-3">
@@ -94,31 +92,40 @@
 
     document.getElementById("data-plantao").valueAsDate = new Date();
 
-    function obterUltimaVisita(nome) {
-        const visitas = db.historico.filter(h => h.voluntario === nome)
-            .sort((a,b) => new Date(b.data) - new Date(a.data));
-        return visitas.length > 0 ? visitas[0].hospital : "Estreia";
-    }
     function normalizarTexto(valor) {
-    return String(valor || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toUpperCase();
+        return String(valor || "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim()
+            .toUpperCase();
     }
-    
+
     function obterUltimaVisita(nome) {
         const visitas = db.historico
             .filter(item => normalizarTexto(item.voluntario) === normalizarTexto(nome))
             .sort((a, b) => String(b.data).localeCompare(String(a.data)));
-    
         return visitas.length ? visitas[0].hospital : "";
     }
-    
+
     function equipePodeIrParaHospital(equipe, hospital) {
         return equipe.every(pessoa =>
             normalizarTexto(obterUltimaVisita(pessoa.nome)) !== normalizarTexto(hospital)
         );
+    }
+
+    function listaNuncaJunto(pessoa) {
+        return String(pessoa.nunca_junto || "")
+            .split(",")
+            .map(nome => normalizarTexto(nome))
+            .filter(Boolean);
+    }
+
+    function pessoasPodemFicarJuntas(pessoa1, pessoa2) {
+        const nome1 = normalizarTexto(pessoa1.nome);
+        const nome2 = normalizarTexto(pessoa2.nome);
+        const bloqueios1 = listaNuncaJunto(pessoa1);
+        const bloqueios2 = listaNuncaJunto(pessoa2);
+        return !bloqueios1.includes(nome2) && !bloqueios2.includes(nome1);
     }
 
     async function carregarDados() {
@@ -146,7 +153,7 @@
         const lista = document.getElementById("lista-presenca");
         lista.innerHTML = "";
         [...db.voluntarios].sort((a,b) => a.nome.localeCompare(b.nome)).forEach(v => {
-            const ultima = obterUltimaVisita(v.nome);
+            const ultima = obterUltimaVisita(v.nome) || "Estreia";
             const div = document.createElement("label");
             div.className = "flex items-center p-3 mb-2 bg-gray-50 border border-gray-100 rounded-xl cursor-pointer";
             div.innerHTML = `
@@ -192,216 +199,220 @@
             </div>`).join("");
     }
 
-   function gerarEscala() {
-    const selecionados = Array.from(
-        document.querySelectorAll("#lista-presenca input:checked")
-    ).map(input => input.value);
+    function gerarEscala() {
+        const selecionados = Array.from(
+            document.querySelectorAll("#lista-presenca input:checked")
+        ).map(input => input.value);
 
-    let presentes = db.voluntarios
-        .filter(v => selecionados.includes(v.nome))
-        .map(v => ({
-            ...v,
-            ultimaVisita: obterUltimaVisita(v.nome)
-        }));
+        let presentes = db.voluntarios
+            .filter(v => selecionados.includes(v.nome))
+            .map(v => ({ ...v, ultimaVisita: obterUltimaVisita(v.nome) }));
 
-    if (presentes.length < 10) {
-        alert("Selecione pelo menos 10 pessoas.");
-        return;
-    }
-
-    presentes = presentes.sort(() => Math.random() - 0.5);
-
-    const equipes = [];
-    const usados = new Set();
-
-    // 1. Mantém os pares "Sempre Junto" unidos.
-    db.voluntarios.forEach(v => {
-        if (!v.sempre_junto || usados.has(normalizarTexto(v.nome))) return;
-
-        const pessoa = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.nome));
-        const parceiro = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.sempre_junto));
-
-        if (pessoa && parceiro) {
-            equipes.push([pessoa, parceiro]);
-            usados.add(normalizarTexto(pessoa.nome));
-            usados.add(normalizarTexto(parceiro.nome));
+        if (presentes.length < 10) {
+            alert("Selecione pelo menos 10 pessoas.");
+            return;
         }
-    });
 
-   // 2. Cria as demais duplas.
-// Prioridades:
-// 1) Nunca colocar pessoas marcadas em "nunca_junto" na mesma equipe.
-// 2) Preferir homem + mulher.
-// 3) Preferir Veterano + Novato.
-let restantes = presentes.filter(p => !usados.has(normalizarTexto(p.nome)));
+        presentes = presentes.sort(() => Math.random() - 0.5);
 
-function listaNuncaJunto(pessoa) {
-    return String(pessoa.nunca_junto || "")
-        .split(",")
-        .map(nome => normalizarTexto(nome))
-        .filter(Boolean);
-}
+        const equipes = [];
+        const usados = new Set();
 
-function pessoasPodemFicarJuntas(pessoa1, pessoa2) {
-    const nome1 = normalizarTexto(pessoa1.nome);
-    const nome2 = normalizarTexto(pessoa2.nome);
+        // 1. Casais "Sempre Junto" — DUPLA FIXA (nunca vira trio)
+        db.voluntarios.forEach(v => {
+            if (!v.sempre_junto || usados.has(normalizarTexto(v.nome))) return;
 
-    const bloqueiosPessoa1 = listaNuncaJunto(pessoa1);
-    const bloqueiosPessoa2 = listaNuncaJunto(pessoa2);
+            const pessoa = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.nome));
+            const parceiro = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.sempre_junto));
 
-    // Verifica nos dois sentidos:
-    // Se A bloqueia B, ou B bloqueia A, eles não formam equipe.
-    return !bloqueiosPessoa1.includes(nome2) &&
-           !bloqueiosPessoa2.includes(nome1);
-}
-
-while (restantes.length >= 2) {
-    const primeira = restantes.shift();
-
-    // Melhor opção:
-    // sexo diferente + experiência diferente + não estão em nunca_junto.
-    let indiceParceiro = restantes.findIndex(pessoa =>
-        pessoasPodemFicarJuntas(primeira, pessoa) &&
-        normalizarTexto(pessoa.sexo) !== normalizarTexto(primeira.sexo) &&
-        normalizarTexto(pessoa.experiencia) !== normalizarTexto(primeira.experiencia)
-    );
-
-    // Segunda opção:
-    // sexo diferente + não estão em nunca_junto.
-    if (indiceParceiro === -1) {
-        indiceParceiro = restantes.findIndex(pessoa =>
-            pessoasPodemFicarJuntas(primeira, pessoa) &&
-            normalizarTexto(pessoa.sexo) !== normalizarTexto(primeira.sexo)
-        );
-    }
-
-    // Terceira opção:
-    // qualquer pessoa permitida pela regra nunca_junto.
-    if (indiceParceiro === -1) {
-        indiceParceiro = restantes.findIndex(pessoa =>
-            pessoasPodemFicarJuntas(primeira, pessoa)
-        );
-    }
-
-    // Situação excepcional: não existe outra combinação possível.
-    // O sistema cria a dupla para não impedir a geração da escala.
-    if (indiceParceiro === -1) {
-        console.warn(
-            `Não foi possível respeitar "nunca_junto" para ${primeira.nome}. ` +
-            "Revise a escala gerada manualmente."
-        );
-        indiceParceiro = 0;
-    }
-
-    const segunda = restantes.splice(indiceParceiro, 1)[0];
-    equipes.push([primeira, segunda]);
-}
-
-// Se houver uma pessoa sobrando, forma um trio.
-// Ela é adicionada, de preferência, a uma equipe que não tenha conflito.
-if (restantes.length) {
-    const sobra = restantes.shift();
-
-    let indiceEquipeSegura = equipes.findIndex(equipe =>
-        equipe.every(pessoa => pessoasPodemFicarJuntas(sobra, pessoa))
-    );
-
-    if (indiceEquipeSegura === -1) {
-        console.warn(
-            `Não foi possível respeitar "nunca_junto" para a sobra: ${sobra.nome}. ` +
-            "Revise a escala gerada manualmente."
-        );
-        indiceEquipeSegura = 0;
-    }
-
-    equipes[indiceEquipeSegura].push(sobra);
-}
-
-    if (equipes.length < 5) {
-        alert("Não foi possível formar equipes suficientes para os 5 hospitais.");
-        return;
-    }
-
-    const escala = HOSPITAIS.map(hospital => ({
-        hospital,
-        equipes: []
-    }));
-
-    const tabajara = escala.find(item => item.hospital.tabajara);
-    const hospitaisNormais = escala.filter(item => !item.hospital.tabajara);
-
-    // 3. Tabajara: exatamente uma dupla, preferencialmente homem + mulher,
-    // e em que nenhum dos dois tenha ido ao Tabajara na última visita.
-    const preferenciaTabajara = preferenciasManuais.find(p =>
-        normalizarTexto(p.hospital) === normalizarTexto("Hospital Tabajara")
-    );
-
-    let indiceTabajara = -1;
-
-    if (preferenciaTabajara) {
-        indiceTabajara = equipes.findIndex(equipe =>
-            equipe.length === 2 &&
-            equipe.some(p => normalizarTexto(p.nome) === normalizarTexto(preferenciaTabajara.voluntario))
-        );
-    }
-
-    if (indiceTabajara === -1) {
-        indiceTabajara = equipes.findIndex(equipe =>
-            equipe.length === 2 &&
-            equipe.some(p => normalizarTexto(p.sexo) === "M") &&
-            equipe.some(p => normalizarTexto(p.sexo) === "F") &&
-            equipePodeIrParaHospital(equipe, "Hospital Tabajara")
-        );
-    }
-
-    // Caso não exista dupla ideal, ainda garante que Tabajara receba apenas uma dupla.
-    if (indiceTabajara === -1) {
-        indiceTabajara = equipes.findIndex(equipe => equipe.length === 2);
-    }
-
-    if (indiceTabajara === -1) {
-        alert("Não foi possível criar uma dupla para o Hospital Tabajara.");
-        return;
-    }
-
-    tabajara.equipes.push(equipes.splice(indiceTabajara, 1)[0]);
-
-    // 4. Preferências manuais dos hospitais normais.
-    preferenciasManuais
-        .filter(p => normalizarTexto(p.hospital) !== normalizarTexto("Hospital Tabajara"))
-        .forEach(preferencia => {
-            const destino = hospitaisNormais.find(item =>
-                normalizarTexto(item.hospital.nome) === normalizarTexto(preferencia.hospital)
-            );
-
-            const indiceEquipe = equipes.findIndex(equipe =>
-                equipe.some(p => normalizarTexto(p.nome) === normalizarTexto(preferencia.voluntario))
-            );
-
-            if (destino && indiceEquipe !== -1) {
-                destino.equipes.push(equipes.splice(indiceEquipe, 1)[0]);
+            if (pessoa && parceiro) {
+                const equipeCasal = [pessoa, parceiro];
+                equipeCasal.casalFixo = true;
+                equipes.push(equipeCasal);
+                usados.add(normalizarTexto(pessoa.nome));
+                usados.add(normalizarTexto(parceiro.nome));
             }
         });
 
-    // 5. Distribui o restante priorizando hospitais diferentes da última visita.
-    equipes.forEach(equipe => {
-        let destinosPossiveis = hospitaisNormais.filter(destino =>
-            equipePodeIrParaHospital(equipe, destino.hospital.nome)
-        );
+        // 2. Demais duplas — REGRAS: Veterano obrigatório, sexo misto, nunca_juntos
+        let restantes = presentes.filter(p => !usados.has(normalizarTexto(p.nome)));
 
-        // Se não houver alternativa sem repetição, usa o hospital menos ocupado.
-        if (!destinosPossiveis.length) {
-            destinosPossiveis = hospitaisNormais;
+        while (restantes.length >= 2) {
+            let primeira;
+
+            // Começa com veterano sempre que possível
+            const idxVet = restantes.findIndex(p => normalizarTexto(p.experiencia) === "VETERANO");
+            if (idxVet !== -1) {
+                primeira = restantes.splice(idxVet, 1)[0];
+            } else {
+                primeira = restantes.shift();
+            }
+
+            let indiceParceiro;
+
+            if (normalizarTexto(primeira.experiencia) === "VETERANO") {
+                // Veterano busca: novato + sexo diferente + nunca_juntos
+                indiceParceiro = restantes.findIndex(p =>
+                    pessoasPodemFicarJuntas(primeira, p) &&
+                    normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo) &&
+                    normalizarTexto(p.experiencia) !== normalizarTexto(primeira.experiencia)
+                );
+                if (indiceParceiro === -1) {
+                    indiceParceiro = restantes.findIndex(p =>
+                        pessoasPodemFicarJuntas(primeira, p) &&
+                        normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
+                    );
+                }
+                if (indiceParceiro === -1) {
+                    indiceParceiro = restantes.findIndex(p => pessoasPodemFicarJuntas(primeira, p));
+                }
+            } else {
+                // Novato busca: veterano + sexo diferente + nunca_juntos
+                indiceParceiro = restantes.findIndex(p =>
+                    normalizarTexto(p.experiencia) === "VETERANO" &&
+                    pessoasPodemFicarJuntas(primeira, p) &&
+                    normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
+                );
+                if (indiceParceiro === -1) {
+                    indiceParceiro = restantes.findIndex(p =>
+                        normalizarTexto(p.experiencia) === "VETERANO" &&
+                        pessoasPodemFicarJuntas(primeira, p)
+                    );
+                }
+                if (indiceParceiro === -1) {
+                    indiceParceiro = restantes.findIndex(p =>
+                        pessoasPodemFicarJuntas(primeira, p) &&
+                        normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
+                    );
+                }
+                if (indiceParceiro === -1) {
+                    indiceParceiro = restantes.findIndex(p => pessoasPodemFicarJuntas(primeira, p));
+                }
+            }
+
+            if (indiceParceiro === -1) {
+                console.warn(`Não foi possível respeitar todas as regras para ${primeira.nome}.`);
+                indiceParceiro = 0;
+            }
+
+            const segunda = restantes.splice(indiceParceiro, 1)[0];
+            equipes.push([primeira, segunda]);
         }
 
-        destinosPossiveis.sort((a, b) => a.equipes.length - b.equipes.length);
+        // Sobra: adiciona a uma equipe NORMAL (nunca casal), preferencialmente com veterano
+        if (restantes.length) {
+            const sobra = restantes.shift();
 
-        destinosPossiveis[0].equipes.push(equipe);
-    });
+            let indiceEquipeSegura = equipes.findIndex(equipe =>
+                !equipe.casalFixo &&
+                equipe.some(p => normalizarTexto(p.experiencia) === "VETERANO") &&
+                equipe.every(p => pessoasPodemFicarJuntas(sobra, p))
+            );
 
-    escalaAtual = escala;
-    mostrarEscala();
-}
+            if (indiceEquipeSegura === -1) {
+                indiceEquipeSegura = equipes.findIndex(equipe =>
+                    !equipe.casalFixo &&
+                    equipe.every(p => pessoasPodemFicarJuntas(sobra, p))
+                );
+            }
+
+            if (indiceEquipeSegura === -1) {
+                indiceEquipeSegura = equipes.findIndex(equipe => !equipe.casalFixo);
+            }
+
+            if (indiceEquipeSegura === -1) {
+                alert(`⚠️ Sobrou ${sobra.nome}, mas todas as equipes são casais fixos. Adicione mais voluntários.`);
+                return;
+            }
+
+            equipes[indiceEquipeSegura].push(sobra);
+        }
+
+        // ALERTA: verifica se alguma equipe ficou sem veterano
+        const equipesSemVeterano = equipes.filter(eq =>
+            !eq.some(p => normalizarTexto(p.experiencia) === "VETERANO")
+        );
+
+        if (equipesSemVeterano.length > 0) {
+            const nomes = equipesSemVeterano.map(eq => eq.map(p => p.nome).join(" + ")).join(", ");
+            setTimeout(() => {
+                alert("⚠️ ATENÇÃO: Equipes sem Veterano:\n\n" + nomes + "\n\nVerifique antes de salvar!");
+            }, 100);
+        }
+
+        if (equipes.length < 5) {
+            alert("Não foi possível formar equipes suficientes.");
+            return;
+        }
+
+        // 3. Monta estrutura dos hospitais
+        const escala = HOSPITAIS.map(hospital => ({ hospital, equipes: [] }));
+        const tabajara = escala.find(item => item.hospital.tabajara);
+        const hospitaisNormais = escala.filter(item => !item.hospital.tabajara);
+
+        // 4. Tabajara: exatamente 1 dupla (mista, sem repetição de última visita)
+        const prefTab = preferenciasManuais.find(p =>
+            normalizarTexto(p.hospital) === normalizarTexto("Hospital Tabajara")
+        );
+
+        let idxTab = -1;
+
+        if (prefTab) {
+            idxTab = equipes.findIndex(equipe =>
+                equipe.length === 2 &&
+                equipe.some(p => normalizarTexto(p.nome) === normalizarTexto(prefTab.voluntario))
+            );
+        }
+
+        if (idxTab === -1) {
+            idxTab = equipes.findIndex(equipe =>
+                equipe.length === 2 &&
+                equipe.some(p => normalizarTexto(p.sexo) === "M") &&
+                equipe.some(p => normalizarTexto(p.sexo) === "F") &&
+                equipePodeIrParaHospital(equipe, "Hospital Tabajara")
+            );
+        }
+
+        if (idxTab === -1) {
+            idxTab = equipes.findIndex(equipe => equipe.length === 2);
+        }
+
+        if (idxTab === -1) {
+            alert("Não foi possível criar uma dupla para o Hospital Tabajara.");
+            return;
+        }
+
+        tabajara.equipes.push(equipes.splice(idxTab, 1)[0]);
+
+        // 5. Preferências manuais nos demais hospitais
+        preferenciasManuais
+            .filter(p => normalizarTexto(p.hospital) !== normalizarTexto("Hospital Tabajara"))
+            .forEach(pref => {
+                const destino = hospitaisNormais.find(item =>
+                    normalizarTexto(item.hospital.nome) === normalizarTexto(pref.hospital)
+                );
+                const idxEquipe = equipes.findIndex(equipe =>
+                    equipe.some(p => normalizarTexto(p.nome) === normalizarTexto(pref.voluntario))
+                );
+                if (destino && idxEquipe !== -1) {
+                    destino.equipes.push(equipes.splice(idxEquipe, 1)[0]);
+                }
+            });
+
+        // 6. Distribui o restante com rotatividade
+        equipes.forEach(equipe => {
+            let destinos = hospitaisNormais.filter(d =>
+                equipePodeIrParaHospital(equipe, d.hospital.nome)
+            );
+            if (!destinos.length) destinos = hospitaisNormais;
+            destinos.sort((a, b) => a.equipes.length - b.equipes.length);
+            destinos[0].equipes.push(equipe);
+        });
+
+        escalaAtual = escala;
+        mostrarEscala();
+    }
+
     function mostrarEscala() {
         const area = document.getElementById("equipes-hospitais");
         area.innerHTML = escalaAtual.map(h => `
@@ -409,7 +420,7 @@ if (restantes.length) {
                 <h3 class="font-black text-xs uppercase mb-2 text-gray-800">${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}</h3>
                 ${h.equipes.map(eq => `
                     <div class="bg-white/70 p-2 rounded-lg mb-2 text-sm">
-                        ${eq.map(p => `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400"> (Vindo de: ${obterUltimaVisita(p.nome)})</span>`).join("<​br>")}
+                        ${eq.map(p => `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${obterUltimaVisita(p.nome) || "Estreia"})</span>`).join("<​br>")}
                     </div>
                 `).join("")}
             </div>
