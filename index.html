@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <title>VISITUAI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -20,13 +20,13 @@
 
 <div id="loading" class="loading-overlay">
     <div class="animate-spin rounded-full h-12 w-12 border-b-4 border-red-600 mb-4"></div>
-    <p class="font-bold text-red-800">Sincronizando com a Nuvem...</p>
+    <p id="loading-text" class="font-bold text-red-800">Sincronizando com a Nuvem...</p>
 </div>
 
 <header class="bg-gradient-to-r from-red-800 to-red-500 text-center shadow-lg border-b-4 border-yellow-400">
     <div class="bg-white p-5">
-        <img src="UAI.jpg" alt="Logo UAI" class="mx-auto w-40 h-40 object-contain mb-2">
-       <p class="text-xs font-bold text-black uppercase text-center">Unidade de Alegria Intensiva</p>
+        <img src="UAI.jpg" alt="Logo UAI" class="mx-auto w-20 h-20 object-contain mb-2">
+        <p class="text-xs font-bold text-black uppercase text-center">Unidade de Alegria Intensiva</p>
     </div>
     <div class="py-3 px-4 text-white text-center">
         <h1 class="font-black text-xl text-center">VISITUAI</h1>
@@ -38,7 +38,7 @@
     <div id="status" class="card p-4 text-center text-sm font-bold text-gray-500 italic">⏳ Inicializando...</div>
 
     <div class="card p-5">
-        <label class="block text-xs font-black text-red-700 uppercase mb-2">DATAS </label>
+        <label class="block text-xs font-black text-red-700 uppercase mb-2">DATA</label>
         <input type="date" id="data-plantao" class="w-full p-3 rounded-xl bg-red-50 border-2 border-red-100 font-bold outline-none">
     </div>
 
@@ -73,10 +73,12 @@
 </main>
 
 <script>
+    // Configurações Supabase (FAÇA NÃO COMPARTILHAR A CHAVE EM PRODUÇÃO)
     const SUPABASE_URL = "https://xavoynadgllwtzounnfi.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhhdm95bmFkZ2xsd3R6b3VubmZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMjM1NDEsImV4cCI6MjA5MzU5OTU0MX0.-24uO3Qj82S8AeBDXmRbWNfXU35huFeBpbmFx9oo3AM";
-    
-    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+
+    // Cliente Supabase será criado tardiamente para evitar race condition
+    let _supabase = null;
 
     const HOSPITAIS = [
         { nome: "Santa Casa de Mogi Guaçu", cor: "border-blue-600", fundo: "bg-blue-50" },
@@ -90,6 +92,7 @@
     let escalaAtual = [];
     let preferenciasManuais = [];
 
+    // inicializa data do plantao com a data atual
     document.getElementById("data-plantao").valueAsDate = new Date();
 
     function normalizarTexto(valor) {
@@ -98,6 +101,12 @@
             .replace(/[\u0300-\u036f]/g, "")
             .trim()
             .toUpperCase();
+    }
+
+    function showStatus(msg, isError = false) {
+        const el = document.getElementById("status");
+        el.innerText = msg;
+        el.style.color = isError ? "#b91c1c" : "";
     }
 
     function obterUltimaVisita(nome) {
@@ -128,23 +137,73 @@
         return !bloqueios1.includes(nome2) && !bloqueios2.includes(nome1);
     }
 
+    function temCarroPessoa(p) {
+        return normalizarTexto(p.transporte || "").includes("CARRO");
+    }
+
+    function equipeTemCarro(equipe) {
+        return equipe.some(p => temCarroPessoa(p));
+    }
+
+    function marcarPropriedadesEquipes(equipes) {
+        equipes.forEach(eq => {
+            eq.hasCar = equipeTemCarro(eq);
+            eq.casalFixo = !!eq.casalFixo;
+        });
+    }
+
+    // Carrega dados do Supabase com logs e timeout
+    let carregarTimeoutId;
     async function carregarDados() {
         document.getElementById("loading").classList.add("active");
+        showStatus("⏳ Inicializando e sincronizando com a nuvem...");
+
+        if (carregarTimeoutId) clearTimeout(carregarTimeoutId);
+        carregarTimeoutId = setTimeout(() => {
+            document.getElementById("loading").classList.remove("active");
+            showStatus("❌ Tempo esgotado ao sincronizar. Verifique console / rede.", true);
+            console.warn("carregarDados timeout");
+        }, 15000);
+
         try {
-            const { data: v } = await _supabase.from('voluntarios').select('*');
-            const { data: h } = await _supabase.from('historico_escalas').select('*');
-            
-            db.voluntarios = v || [];
-            db.historico = h || [];
+            console.log("DEBUG: typeof supabase =", typeof supabase);
+            if (typeof supabase === "undefined") throw new Error("Biblioteca supabase-js não carregou (verifique Network / bloqueadores).");
+
+            if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error("SUPABASE_URL ou SUPABASE_KEY ausente.");
+
+            if (!_supabase) {
+                // criar client de forma segura
+                _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+                console.log("DEBUG: _supabase criado");
+            }
+
+            // Teste rápido das tabelas (limitar para detectar erros de permissão)
+            const { data: tv, error: errTv } = await _supabase.from('voluntarios').select('*').limit(1);
+            const { data: th, error: errTh } = await _supabase.from('historico_escalas').select('*').limit(1);
+
+            if (errTv) { console.error("Erro fetch voluntarios:", errTv); throw errTv; }
+            if (errTh) { console.error("Erro fetch historico_escalas:", errTh); throw errTh; }
+
+            // Busca completa
+            const { data: fullV } = await _supabase.from('voluntarios').select('*');
+            const { data: fullH } = await _supabase.from('historico_escalas').select('*');
+
+            db.voluntarios = fullV || [];
+            db.historico = fullH || [];
 
             renderizarPresenca();
             preencherSeletoresManuais();
-            
+
             document.getElementById("btn-gerar").disabled = false;
-            document.getElementById("status").innerText = "✅ Banco de dados sincronizado.";
+            showStatus("✅ Banco de dados sincronizado.");
+            console.log("SYNC OK:", { voluntarios: db.voluntarios.length, historico: db.historico.length });
+
         } catch (e) {
-            document.getElementById("status").innerText = "❌ Erro ao carregar dados.";
+            console.error("Erro em carregarDados:", e);
+            showStatus("❌ Erro ao sincronizar: " + (e.message || e), true);
+            alert("Erro ao inicializar. Veja o console do navegador para detalhes.");
         } finally {
+            if (carregarTimeoutId) clearTimeout(carregarTimeoutId);
             document.getElementById("loading").classList.remove("active");
         }
     }
@@ -160,7 +219,7 @@
                 <input type="checkbox" value="${v.nome}" onchange="atualizarContador(); preencherSeletoresManuais();" class="w-5 h-5 accent-red-600 mr-3">
                 <div class="flex-1">
                     <div class="font-bold text-sm text-gray-800">${v.nome}</div>
-                    <div class="text-[10px] text-gray-500 uppercase">${v.sexo} · ${v.transporte} · ${v.experiencia}</div>
+                    <div class="text-[10px] text-gray-500 uppercase">${v.sexo || ""} · ${v.transporte || ""} · ${v.experiencia || ""}</div>
                     <div class="last-visit">📍 Último: ${ultima}</div>
                 </div>
             `;
@@ -197,22 +256,6 @@
                 <span>${p.voluntario} → ${p.hospital}</span>
                 <button onclick="preferenciasManuais.splice(${i},1); renderizarPreferencias();" class="text-red-600">X</button>
             </div>`).join("");
-    }
-
-    function temCarroPessoa(p) {
-        return normalizarTexto(p.transporte) === "CARRO" || normalizarTexto(p.transporte) === "CARRO(PR)" || normalizarTexto(p.transporte).includes("CARRO");
-    }
-
-    function equipeTemCarro(equipe) {
-        return equipe.some(p => temCarroPessoa(p));
-    }
-
-    function marcarPropriedadesEquipes(equipes) {
-        equipes.forEach(eq => {
-            eq.hasCar = equipeTemCarro(eq);
-            // casalFixo may already exist
-            eq.casalFixo = !!eq.casalFixo;
-        });
     }
 
     function gerarEscala() {
@@ -268,7 +311,6 @@
             let indiceParceiro;
 
             if (normalizarTexto(primeira.experiencia) === "VETERANO") {
-                // Veterano busca: novato + sexo diferente + nunca_juntos
                 indiceParceiro = restantes.findIndex(p =>
                     pessoasPodemFicarJuntas(primeira, p) &&
                     normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo) &&
@@ -284,7 +326,6 @@
                     indiceParceiro = restantes.findIndex(p => pessoasPodemFicarJuntas(primeira, p));
                 }
             } else {
-                // Novato busca: veterano + sexo diferente + nunca_juntos
                 indiceParceiro = restantes.findIndex(p =>
                     normalizarTexto(p.experiencia) === "VETERANO" &&
                     pessoasPodemFicarJuntas(primeira, p) &&
@@ -349,7 +390,6 @@
             equipes[indiceEquipeSegura].hasCar = equipeTemCarro(equipes[indiceEquipeSegura]);
         }
 
-        // Garante propriedades hasCar/casalFixo definidas
         marcarPropriedadesEquipes(equipes);
 
         // ALERTA: verifica se alguma equipe ficou sem veterano
@@ -406,7 +446,6 @@
             return;
         }
 
-        // move a dupla do Tabajara
         tabajara.equipes.push(equipes.splice(idxTab, 1)[0]);
 
         // 5. Preferências manuais nos demais hospitais
@@ -425,8 +464,7 @@
             });
 
         // 6. Distribui o restante com rotatividade
-        // RULE ADDED: preferir atribuir equipes sem carro para São Francisco
-        // and bias São Francisco to receive the largest number of equipes.
+        // Regra nova: privilegiar São Francisco para equipes sem carro e bias para receber mais equipes
         equipes.forEach(equipe => {
             let destinos = hospitaisNormais.filter(d =>
                 equipePodeIrParaHospital(equipe, d.hospital.nome)
@@ -434,16 +472,15 @@
 
             if (!destinos.length) destinos = hospitaisNormais.slice();
 
-            // If the team has no car, try to put it on São Francisco first
             const sfIndex = destinos.findIndex(d => normalizarTexto(d.hospital.nome) === normalizarTexto("Hospital São Francisco"));
+
             if (!equipe.hasCar && sfIndex !== -1) {
-                // move São Francisco to the front
+                // prioriza São Francisco
                 const sf = destinos.splice(sfIndex, 1)[0];
                 destinos.unshift(sf);
             }
 
-            // bias so São Francisco gets more teams overall:
-            // reduce its effective load when sorting so it is chosen earlier
+            // diminui carga percebida do São Francisco para que ele seja escolhido com frequência
             destinos.sort((a, b) => {
                 const aLoad = a.equipes.length - (normalizarTexto(a.hospital.nome) === normalizarTexto("Hospital São Francisco") ? 1.5 : 0);
                 const bLoad = b.equipes.length - (normalizarTexto(b.hospital.nome) === normalizarTexto("Hospital São Francisco") ? 1.5 : 0);
@@ -477,34 +514,45 @@
 
     async function salvarNoSupabase() {
         document.getElementById("loading").classList.add("active");
+        showStatus("⏳ Gravando escala na nuvem...");
+
         try {
-            const data = document.getElementById("data-plantao").value;
-            const inserts = [];
+            const plantaoData = document.getElementById("data-plantao").value;
+            if (!plantaoData) {
+                alert("Escolha a data do plantão antes de salvar.");
+                return;
+            }
+
+            const insertRows = [];
             escalaAtual.forEach(h => {
                 h.equipes.forEach(eq => eq.forEach(p => {
-                    inserts.push({ data, hospital: h.hospital.nome, voluntario: p.nome });
+                    insertRows.push({ data: plantaoData, hospital: h.hospital.nome, voluntario: p.nome });
                 }));
             });
 
-            console.log("DEBUG inserts:", inserts);
-            if (!inserts.length) {
+            console.log("DEBUG inserts:", insertRows);
+            if (!insertRows.length) {
                 alert("Erro: não há dados para salvar (inserts vazio). Gere a escala antes de salvar.");
                 return;
             }
 
-            const { data, error } = await _supabase.from('historico_escalas').insert(inserts);
-            console.log("DEBUG supabase response:", { data, error });
-            if (error) throw error;
+            // Executa o insert
+            const { data: insertResult, error: insertError } = await _supabase.from('historico_escalas').insert(insertRows);
+            console.log("DEBUG supabase response:", { insertResult, insertError });
+
+            if (insertError) throw insertError;
 
             document.getElementById("msg-sucesso").classList.remove("hidden");
             document.getElementById("btn-salvar").disabled = true;
             alert("Sucesso! Escala registrada no histórico.");
-            setTimeout(() => location.reload(), 2000);
+            setTimeout(() => location.reload(), 1200);
+
         } catch (e) {
             console.error("Erro ao salvar:", e);
             alert("Erro ao salvar: " + (e.message || e));
         } finally {
             document.getElementById("loading").classList.remove("active");
+            showStatus("✅ Pronto.");
         }
     }
 
@@ -519,7 +567,8 @@
         alert("Escala copiada!");
     }
 
-    window.onload = carregarDados;
+    // Inicia carregamento ao terminar de montar DOM
+    window.addEventListener('DOMContentLoaded', carregarDados);
 </script>
 </body>
 </html>
