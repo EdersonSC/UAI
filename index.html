@@ -499,34 +499,25 @@
     area.innerHTML = ""; // limpa antes
 
     escalaAtual.forEach(h => {
-        // container do hospital
         const hospitalDiv = document.createElement("div");
         hospitalDiv.className = `hospital-card card p-4 mb-4 ${h.hospital.cor} ${h.hospital.fundo}`;
 
-        // cabeçalho
         const header = document.createElement("h3");
         header.className = "font-black text-xs uppercase mb-2 text-gray-800";
         header.innerText = `${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}`;
         hospitalDiv.appendChild(header);
 
-        // para cada equipe daquele hospital
         h.equipes.forEach(eq => {
             const eqDiv = document.createElement("div");
             eqDiv.className = "bg-white/70 p-2 rounded-lg mb-2 text-sm";
 
-            // monta as linhas das pessoas usando <br/> corretamente
-            // cada pessoa vira uma linha; usamos join('<br/>') construído a partir de strings simples
-            const linhas = eq.map(p => {
-                const vindo = obterUltimaVisita(p.nome) || "Estreia";
-                return `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${vindo})</span>`;
-            }).join("<​br/>"); // <-- NOTA: use <br/> sem caracteres invisíveis
+            // monta cada pessoa em uma linha real usando elementos (sem join problemático)
+            eq.forEach(p => {
+                const linha = document.createElement("div");
+                linha.innerHTML = `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${obterUltimaVisita(p.nome) || "Estreia"})</span>`;
+                eqDiv.appendChild(linha);
+            });
 
-            // injeta o HTML das pessoas
-            const pessoasContainer = document.createElement("div");
-            pessoasContainer.innerHTML = linhas;
-            eqDiv.appendChild(pessoasContainer);
-
-            // linha de meta (hasCar / casalFixo)
             const meta = document.createElement("div");
             meta.className = "text-[10px] text-gray-500 mt-1";
             meta.innerText = `Has car: ${eq.hasCar ? 'Sim' : 'Não'} ${eq.casalFixo ? ' · Casal fixo' : ''}`;
