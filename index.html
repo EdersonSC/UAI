@@ -495,22 +495,53 @@
     }
 
     function mostrarEscala() {
-        const area = document.getElementById("equipes-hospitais");
-        area.innerHTML = escalaAtual.map(h => `
-            <div class="hospital-card card p-4 mb-4 ${h.hospital.cor} ${h.hospital.fundo}">
-                <h3 class="font-black text-xs uppercase mb-2 text-gray-800">${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}</h3>
-                ${h.equipes.map(eq => `
-                    <div class="bg-white/70 p-2 rounded-lg mb-2 text-sm">
-                        ${eq.map(p => `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${obterUltimaVisita(p.nome) || "Estreia"})</span>`).join("<​br>")}
-                        <div class="text-[10px] text-gray-500 mt-1">Has car: ${eq.hasCar ? 'Sim' : 'Não'} ${eq.casalFixo ? ' · Casal fixo' : ''}</div>
-                    </div>
-                `).join("")}
-            </div>
-        `).join("");
-        document.getElementById("resultado").classList.remove("hidden");
-        document.getElementById("btn-salvar").disabled = false;
-        document.getElementById("msg-sucesso").classList.add("hidden");
-    }
+    const area = document.getElementById("equipes-hospitais");
+    area.innerHTML = ""; // limpa antes
+
+    escalaAtual.forEach(h => {
+        // container do hospital
+        const hospitalDiv = document.createElement("div");
+        hospitalDiv.className = `hospital-card card p-4 mb-4 ${h.hospital.cor} ${h.hospital.fundo}`;
+
+        // cabeçalho
+        const header = document.createElement("h3");
+        header.className = "font-black text-xs uppercase mb-2 text-gray-800";
+        header.innerText = `${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}`;
+        hospitalDiv.appendChild(header);
+
+        // para cada equipe daquele hospital
+        h.equipes.forEach(eq => {
+            const eqDiv = document.createElement("div");
+            eqDiv.className = "bg-white/70 p-2 rounded-lg mb-2 text-sm";
+
+            // monta as linhas das pessoas usando <br/> corretamente
+            // cada pessoa vira uma linha; usamos join('<br/>') construído a partir de strings simples
+            const linhas = eq.map(p => {
+                const vindo = obterUltimaVisita(p.nome) || "Estreia";
+                return `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${vindo})</span>`;
+            }).join("<​br/>"); // <-- NOTA: use <br/> sem caracteres invisíveis
+
+            // injeta o HTML das pessoas
+            const pessoasContainer = document.createElement("div");
+            pessoasContainer.innerHTML = linhas;
+            eqDiv.appendChild(pessoasContainer);
+
+            // linha de meta (hasCar / casalFixo)
+            const meta = document.createElement("div");
+            meta.className = "text-[10px] text-gray-500 mt-1";
+            meta.innerText = `Has car: ${eq.hasCar ? 'Sim' : 'Não'} ${eq.casalFixo ? ' · Casal fixo' : ''}`;
+            eqDiv.appendChild(meta);
+
+            hospitalDiv.appendChild(eqDiv);
+        });
+
+        area.appendChild(hospitalDiv);
+    });
+
+    document.getElementById("resultado").classList.remove("hidden");
+    document.getElementById("btn-salvar").disabled = false;
+    document.getElementById("msg-sucesso").classList.add("hidden");
+}
 
     async function salvarNoSupabase() {
         document.getElementById("loading").classList.add("active");
