@@ -87,9 +87,8 @@
         { nome: "Hospital Tabajara", cor: "border-yellow-600", fundo: "bg-yellow-50", tabajara: true }
     ];
 
-    // Máximo de equipes nos hospitais comuns (exceto São Francisco, que recebe a sobra).
-    // 1 = cada hospital recebe 1 equipe e o resto vai para o São Francisco.
-    const MAX_EQUIPES_OUTROS = 1;
+    // Quanto o São Francisco comporta em relação aos outros (2 = o dobro de equipes)
+    const PESO_SAO_FRANCISCO = 2;
 
     // Penalidade por repetir dupla: última visita, penúltima, antepenúltima
     const PENALIDADE_DUPLA = [10, 6, 3];
@@ -599,17 +598,22 @@
             dest.equipes.push(equipes.splice(idx, 1)[0]);
         });
 
-        // 6b. Distribui o restante: hospitais comuns até o limite, o que sobrar vai para o São Francisco
+        // 6b. Distribui o restante de forma equilibrada entre todos os hospitais (menos Tabajara).
+        //     O São Francisco é o maior, então "pesa" o dobro na capacidade.
+        const destinos = [...hospitaisOutros, hospitalSobra].filter(Boolean);
+        const pesoHospital = d => (d.hospital.sobra ? PESO_SAO_FRANCISCO : 1);
+
         equipes.forEach(equipe => {
-            const candidatos = hospitaisOutros
-                .filter(d => d.equipes.length < MAX_EQUIPES_OUTROS)
-                .filter(d => equipePodeIrParaHospital(equipe, d.hospital.nome))
-                .sort((a, b) => a.equipes.length - b.equipes.length);
+            const carga = d => (d.equipes.length + 1) / pesoHospital(d);
 
-            if (candidatos.length) candidatos[0].equipes.push(equipe);
-            else hospitalSobra.equipes.push(equipe);
+            // prefere hospitais onde ninguém da equipe esteve na última visita
+            let candidatos = destinos.filter(d => equipePodeIrParaHospital(equipe, d.hospital.nome));
+            if (!candidatos.length) candidatos = destinos;
+
+            candidatos.sort((a, b) => carga(a) - carga(b) || a.equipes.length - b.equipes.length);
+            candidatos[0].equipes.push(equipe);
         });
-
+        
         // Confere se algum hospital ficou vazio
         const vazios = escala.filter(item => item.equipes.length === 0).map(item => item.hospital.nome);
         if (vazios.length) {
