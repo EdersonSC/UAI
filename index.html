@@ -73,31 +73,35 @@
 </main>
 
 <script>
-    // Configurações Supabase (FAÇA NÃO COMPARTILHAR A CHAVE EM PRODUÇÃO)
+    // Configurações Supabase
     const SUPABASE_URL = "https://xavoynadgllwtzounnfi.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhhdm95bmFkZ2xsd3R6b3VubmZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMjM1NDEsImV4cCI6MjA5MzU5OTU0MX0.-24uO3Qj82S8AeBDXmRbWNfXU35huFeBpbmFx9oo3AM";
 
-    // Cliente Supabase será criado tardiamente para evitar race condition
     let _supabase = null;
 
     const HOSPITAIS = [
         { nome: "Santa Casa de Mogi Guaçu", cor: "border-blue-600", fundo: "bg-blue-50" },
         { nome: "Santa Casa de Mogi Mirim", cor: "border-emerald-600", fundo: "bg-emerald-50" },
-        { nome: "Hospital São Francisco", cor: "border-purple-600", fundo: "bg-purple-50" },
+        { nome: "Hospital São Francisco", cor: "border-purple-600", fundo: "bg-purple-50", sobra: true },
         { nome: "Hospital 22 de Outubro", cor: "border-red-600", fundo: "bg-red-50" },
         { nome: "Hospital Tabajara", cor: "border-yellow-600", fundo: "bg-yellow-50", tabajara: true }
     ];
+
+    // Máximo de equipes nos hospitais comuns (exceto São Francisco, que recebe a sobra).
+    // 1 = cada hospital recebe 1 equipe e o resto vai para o São Francisco.
+    const MAX_EQUIPES_OUTROS = 1;
+
+    // Penalidade por repetir dupla: última visita, penúltima, antepenúltima
+    const PENALIDADE_DUPLA = [10, 6, 3];
 
     let db = { voluntarios: [], historico: [] };
     let escalaAtual = [];
     let preferenciasManuais = [];
 
-    // Set com os ids (ou nomes) dos voluntários que vão sem carro neste plantão
     const semCarroHoje = new Set();
 
-    // inicializa data do plantao com a data atual
     document.getElementById("data-plantao").valueAsDate = new Date();
-   
+
     function normalizarTexto(valor) {
         return String(valor || "")
             .normalize("NFD")
@@ -124,7 +128,7 @@
             normalizarTexto(obterUltimaVisita(pessoa.nome)) !== normalizarTexto(hospital)
         );
     }
-    
+
     function listaNuncaJunto(pessoa) {
         return String(pessoa.nunca_junto || "")
             .split(",")
@@ -141,15 +145,17 @@
     }
 
     function temCarroPessoa(p) {
-    const uid = p.id ?? normalizarTexto(p.nome);
-    // se o voluntário foi marcado como sem carro hoje → não tem carro
-    if (semCarroHoje.has(uid)) return false;
-    // caso contrário, usa o campo transporte habitual
-    return normalizarTexto(p.transporte || "").includes("CARRO");
+        const uid = p.id ?? normalizarTexto(p.nome);
+        if (semCarroHoje.has(uid)) return false;
+        return normalizarTexto(p.transporte || "").includes("CARRO");
     }
 
     function equipeTemCarro(equipe) {
         return equipe.some(p => temCarroPessoa(p));
+    }
+
+    function ehVeterano(p) {
+        return normalizarTexto(p.experiencia) === "VETERANO";
     }
 
     function marcarPropriedadesEquipes(equipes) {
@@ -159,7 +165,123 @@
         });
     }
 
-    // Carrega dados do Supabase com logs e timeout
+    // ---------- ROTAÇÃO DE DUPLAS ----------
+    function chaveDupla(nomeA, nomeB) {
+        return [normalizarTexto(nomeA), normalizarTexto(nomeB)].sort().join("|");
+    }
+
+    // Monta mapa "A|B" -> penalidade, com base nas últimas datas do histórico.
+    // Considera "foram juntos" quem visitou o mesmo hospital na mesma data.
+    function construirMapaDuplas() {
+        const mapa = new Map();
+        const datas = [...new Set(db.historico.map(h => String(h.data)))]
+            .sort((a, b) => b.localeCompare(a))
+            .slice(0, PENALIDADE_DUPLA.length);
+
+        datas.forEach((data, idx) => {
+            const porHospital = {};
+            db.historico.filter(h => String(h.data) === data).forEach(h => {
+                const k = normalizarTexto(h.hospital);
+                (porHospital[k] = porHospital[k] || []).push(h.voluntario);
+            });
+            Object.values(porHospital).forEach(nomes => {
+                for (let i = 0; i < nomes.length; i++) {
+                    for (let j = i + 1; j < nomes.length; j++) {
+                        const k = chaveDupla(nomes[i], nomes[j]);
+                        mapa.set(k, Math.max(mapa.get(k) || 0, PENALIDADE_DUPLA[idx]));
+                    }
+                }
+            });
+        });
+        return mapa;
+    }
+
+    let mapaDuplas = new Map();
+
+    function penalidadeDupla(a, b) {
+        return mapaDuplas.get(chaveDupla(a.nome, b.nome)) || 0;
+    }
+
+    // Pontuação (menor = melhor) para formar dupla entre a e b
+    function pontuarParceiro(a, b) {
+        if (!pessoasPodemFicarJuntas(a, b)) return Infinity;
+        let s = 0;
+        if (!ehVeterano(a) && !ehVeterano(b)) s += 100;                  // veterano obrigatório
+        if (!temCarroPessoa(a) && !temCarroPessoa(b)) s += 20;           // alguém de carro
+        s += penalidadeDupla(a, b);                                      // rotação de duplas
+        if (normalizarTexto(a.sexo) === normalizarTexto(b.sexo)) s += 5; // sexo misto
+        if (ehVeterano(a) && ehVeterano(b)) s += 3;                      // mistura de experiência
+        return s;
+    }
+
+    function escolherParceiro(primeira, restantes) {
+        let melhor = -1;
+        let melhorScore = Infinity;
+        restantes.forEach((p, i) => {
+            const sc = pontuarParceiro(primeira, p);
+            if (sc < melhorScore) { melhorScore = sc; melhor = i; }
+        });
+        return melhor;
+    }
+
+    function equipeRepetiuDupla(eq) {
+        for (let i = 0; i < eq.length; i++) {
+            for (let j = i + 1; j < eq.length; j++) {
+                if (penalidadeDupla(eq[i], eq[j]) > 0) return true;
+            }
+        }
+        return false;
+    }
+
+    // ---------- GARANTIR CARRO EM TODAS AS EQUIPES ----------
+    // Troca um integrante sem carro (de equipe sem carro) por um com carro de uma equipe que tem 2+ carros.
+    // Respeita: casal fixo (não mexe), nunca_junto e veterano em ambas as equipes.
+    function garantirCarroEmTodas(equipes) {
+        const qtdCarros = eq => eq.filter(p => temCarroPessoa(p)).length;
+        const temVet = eq => eq.some(p => ehVeterano(p));
+        const podeEntrar = (pessoa, equipeSemEle) => equipeSemEle.every(o => pessoasPodemFicarJuntas(pessoa, o));
+
+        const tentar = (estrito) => {
+            for (const T of equipes) {
+                if (equipeTemCarro(T) || T.casalFixo) continue;
+
+                for (const D of equipes) {
+                    if (D === T || D.casalFixo || qtdCarros(D) < 2) continue;
+
+                    for (const x of T.filter(p => !temCarroPessoa(p))) {
+                        for (const c of D.filter(p => temCarroPessoa(p))) {
+                            const Tresto = T.filter(p => p !== x);
+                            const Dresto = D.filter(p => p !== c);
+
+                            if (!podeEntrar(c, Tresto) || !podeEntrar(x, Dresto)) continue;
+
+                            // não pode deixar nenhuma das equipes sem veterano (se tinham)
+                            if (temVet(T) && !temVet([...Tresto, c])) continue;
+                            if (temVet(D) && !temVet([...Dresto, x])) continue;
+
+                            // no modo estrito, evita criar dupla repetida
+                            if (estrito && (Tresto.some(o => penalidadeDupla(c, o) > 0) ||
+                                            Dresto.some(o => penalidadeDupla(x, o) > 0))) continue;
+
+                            T[T.indexOf(x)] = c;
+                            D[D.indexOf(c)] = x;
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        };
+
+        let guarda = 100;
+        while (guarda-- > 0) {
+            if (tentar(true)) continue;
+            if (tentar(false)) continue;
+            break;
+        }
+    }
+
+    // ---------- CARREGAR DADOS ----------
     let carregarTimeoutId;
     async function carregarDados() {
         document.getElementById("loading").classList.add("active");
@@ -173,27 +295,21 @@
         }, 15000);
 
         try {
-            console.log("DEBUG: typeof supabase =", typeof supabase);
             if (typeof supabase === "undefined") throw new Error("Biblioteca supabase-js não carregou (verifique Network / bloqueadores).");
-
             if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error("SUPABASE_URL ou SUPABASE_KEY ausente.");
 
             if (!_supabase) {
-                // criar client de forma segura
                 _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
-                console.log("DEBUG: _supabase criado");
             }
 
-            // Teste rápido das tabelas (limitar para detectar erros de permissão)
-            const { data: tv, error: errTv } = await _supabase.from('voluntarios').select('*').limit(1);
-            const { data: th, error: errTh } = await _supabase.from('historico_escalas').select('*').limit(1);
+            const { error: errTv } = await _supabase.from('voluntarios').select('*').limit(1);
+            const { error: errTh } = await _supabase.from('historico_escalas').select('*').limit(1);
 
             if (errTv) { console.error("Erro fetch voluntarios:", errTv); throw errTv; }
             if (errTh) { console.error("Erro fetch historico_escalas:", errTh); throw errTh; }
 
-            // Busca completa
             const { data: fullV } = await _supabase.from('voluntarios').select('*');
-            const { data: fullH } = await _supabase.from('historico_escalas').select('*');
+            const { data: fullH } = await _supabase.from('historico_escalas').select('*').range(0, 9999);
 
             db.voluntarios = fullV || [];
             db.historico = fullH || [];
@@ -216,52 +332,47 @@
     }
 
     function renderizarPresenca() {
-    const lista = document.getElementById("lista-presenca");
-    lista.innerHTML = "";
-    [...db.voluntarios].sort((a,b) => a.nome.localeCompare(b.nome)).forEach(v => {
-        const ultima = obterUltimaVisita(v.nome) || "Estreia";
-        const uid = v.id ?? normalizarTexto(v.nome); // id único usado para elementos
-        const div = document.createElement("label");
-        div.className = "flex items-center p-3 mb-2 bg-gray-50 border border-gray-100 rounded-xl cursor-pointer";
-        div.innerHTML = `
-            <input type="checkbox" value="${v.nome}" onchange="atualizarContador(); preencherSeletoresManuais();" class="w-5 h-5 accent-red-600 mr-3">
-            <div class="flex-1">
-                <div class="font-bold text-sm text-gray-800">${v.nome}</div>
-                <div class="text-[10px] text-gray-500 uppercase">${v.sexo || ""} · ${v.transporte || ""} · ${v.experiencia || ""}</div>
-                <div class="last-visit">📍 Último: ${ultima}</div>
-            </div>
-            <div class="ml-3 flex items-center text-xs">
-                <input id="semcarro-${uid}" type="checkbox" onchange="toggleSemCarro('${uid}', this.checked)" class="w-4 h-4 mr-1">
-                <span class="text-[11px] text-gray-600">Sem carro</span>
-            </div>
-        `;
-        // se já marcado no Set, ajustar o checkbox visual
-        lista.appendChild(div);
-        // se o usuário já marcou sem carro anteriormente (persistência temporária na página)
-        if (semCarroHoje.has(uid)) {
-            const el = document.getElementById(`semcarro-${uid}`);
-            if (el) el.checked = true;
-        }
-    });
-}
-
+        const lista = document.getElementById("lista-presenca");
+        lista.innerHTML = "";
+        [...db.voluntarios].sort((a,b) => a.nome.localeCompare(b.nome)).forEach(v => {
+            const ultima = obterUltimaVisita(v.nome) || "Estreia";
+            const uid = v.id ?? normalizarTexto(v.nome);
+            const div = document.createElement("label");
+            div.className = "flex items-center p-3 mb-2 bg-gray-50 border border-gray-100 rounded-xl cursor-pointer";
+            div.innerHTML = `
+                <input type="checkbox" value="${v.nome}" onchange="atualizarContador(); preencherSeletoresManuais();" class="presenca-check w-5 h-5 accent-red-600 mr-3">
+                <div class="flex-1">
+                    <div class="font-bold text-sm text-gray-800">${v.nome}</div>
+                    <div class="text-[10px] text-gray-500 uppercase">${v.sexo || ""} · ${v.transporte || ""} · ${v.experiencia || ""}</div>
+                    <div class="last-visit">📍 Último: ${ultima}</div>
+                </div>
+                <div class="ml-3 flex items-center text-xs">
+                    <input id="semcarro-${uid}" type="checkbox" onchange="toggleSemCarro('${uid}', this.checked)" class="semcarro-check w-4 h-4 mr-1">
+                    <span class="text-[11px] text-gray-600">Sem carro</span>
+                </div>
+            `;
+            lista.appendChild(div);
+            if (semCarroHoje.has(uid)) {
+                const el = document.getElementById(`semcarro-${uid}`);
+                if (el) el.checked = true;
+            }
+        });
+    }
 
     function toggleSemCarro(uid, checked) {
-    if (checked) semCarroHoje.add(uid);
-    else semCarroHoje.delete(uid);
-    // opcional: re-renderizar seleção manual ou contador se quiser feedback imediato
-    // atualizarContador();
-}
+        if (checked) semCarroHoje.add(uid);
+        else semCarroHoje.delete(uid);
+        atualizarContador();
+    }
 
-    
     function atualizarContador() {
-        document.getElementById("contador").innerText = document.querySelectorAll("#lista-presenca input:checked").length;
+        document.getElementById("contador").innerText = document.querySelectorAll("#lista-presenca .presenca-check:checked").length;
     }
 
     function preencherSeletoresManuais() {
         const vSel = document.getElementById("manual-voluntario");
         const hSel = document.getElementById("manual-hospital");
-        const presentes = Array.from(document.querySelectorAll("#lista-presenca input:checked")).map(i => i.value);
+        const presentes = Array.from(document.querySelectorAll("#lista-presenca .presenca-check:checked")).map(i => i.value);
         vSel.innerHTML = '<option value="">Quem?</option>';
         db.voluntarios.filter(p => presentes.includes(p.nome)).forEach(p => vSel.innerHTML += `<option value="${p.nome}">${p.nome}</option>`);
         hSel.innerHTML = '<option value="">Hospital?</option>';
@@ -285,20 +396,21 @@
             </div>`).join("");
     }
 
+    // ---------- GERAR ESCALA ----------
     function gerarEscala() {
         const selecionados = Array.from(
-            document.querySelectorAll("#lista-presenca input:checked")
+            document.querySelectorAll("#lista-presenca .presenca-check:checked")
         ).map(input => input.value);
 
         let presentes = db.voluntarios
             .filter(v => selecionados.includes(v.nome))
             .map(v => {
                 const uid = v.id ?? normalizarTexto(v.nome);
-                return { 
-                    ...v, 
+                return {
+                    ...v,
                     uid,
                     semCarroHoje: !!semCarroHoje.has(uid),
-                    ultimaVisita: obterUltimaVisita(v.nome) 
+                    ultimaVisita: obterUltimaVisita(v.nome)
                 };
             });
 
@@ -308,6 +420,7 @@
         }
 
         presentes = presentes.sort(() => Math.random() - 0.5);
+        mapaDuplas = construirMapaDuplas();
 
         const equipes = [];
         const usados = new Set();
@@ -319,7 +432,7 @@
             const pessoa = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.nome));
             const parceiro = presentes.find(p => normalizarTexto(p.nome) === normalizarTexto(v.sempre_junto));
 
-            if (pessoa && parceiro) {
+            if (pessoa && parceiro && !usados.has(normalizarTexto(parceiro.nome))) {
                 const equipeCasal = [pessoa, parceiro];
                 equipeCasal.casalFixo = true;
                 equipeCasal.hasCar = equipeTemCarro(equipeCasal);
@@ -329,59 +442,22 @@
             }
         });
 
-        // 2. Demais duplas — REGRAS: Veterano obrigatório, sexo misto, nunca_juntos
+        // 2. Demais duplas — veterano obrigatório, alguém de carro, rotação de duplas,
+        //    sexo misto, nunca_junto (sempre respeitado)
         let restantes = presentes.filter(p => !usados.has(normalizarTexto(p.nome)));
 
         while (restantes.length >= 2) {
             let primeira;
 
             // Começa com veterano sempre que possível
-            const idxVet = restantes.findIndex(p => normalizarTexto(p.experiencia) === "VETERANO");
+            const idxVet = restantes.findIndex(p => ehVeterano(p));
             if (idxVet !== -1) {
                 primeira = restantes.splice(idxVet, 1)[0];
             } else {
                 primeira = restantes.shift();
             }
 
-            let indiceParceiro;
-
-            if (normalizarTexto(primeira.experiencia) === "VETERANO") {
-                indiceParceiro = restantes.findIndex(p =>
-                    pessoasPodemFicarJuntas(primeira, p) &&
-                    normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo) &&
-                    normalizarTexto(p.experiencia) !== normalizarTexto(primeira.experiencia)
-                );
-                if (indiceParceiro === -1) {
-                    indiceParceiro = restantes.findIndex(p =>
-                        pessoasPodemFicarJuntas(primeira, p) &&
-                        normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
-                    );
-                }
-                if (indiceParceiro === -1) {
-                    indiceParceiro = restantes.findIndex(p => pessoasPodemFicarJuntas(primeira, p));
-                }
-            } else {
-                indiceParceiro = restantes.findIndex(p =>
-                    normalizarTexto(p.experiencia) === "VETERANO" &&
-                    pessoasPodemFicarJuntas(primeira, p) &&
-                    normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
-                );
-                if (indiceParceiro === -1) {
-                    indiceParceiro = restantes.findIndex(p =>
-                        normalizarTexto(p.experiencia) === "VETERANO" &&
-                        pessoasPodemFicarJuntas(primeira, p)
-                    );
-                }
-                if (indiceParceiro === -1) {
-                    indiceParceiro = restantes.findIndex(p =>
-                        pessoasPodemFicarJuntas(primeira, p) &&
-                        normalizarTexto(p.sexo) !== normalizarTexto(primeira.sexo)
-                    );
-                }
-                if (indiceParceiro === -1) {
-                    indiceParceiro = restantes.findIndex(p => pessoasPodemFicarJuntas(primeira, p));
-                }
-            }
+            let indiceParceiro = escolherParceiro(primeira, restantes);
 
             if (indiceParceiro === -1) {
                 console.warn(`Não foi possível respeitar todas as regras para ${primeira.nome}.`);
@@ -401,7 +477,7 @@
 
             let indiceEquipeSegura = equipes.findIndex(equipe =>
                 !equipe.casalFixo &&
-                equipe.some(p => normalizarTexto(p.experiencia) === "VETERANO") &&
+                equipe.some(p => ehVeterano(p)) &&
                 equipe.every(p => pessoasPodemFicarJuntas(sobra, p))
             );
 
@@ -422,21 +498,35 @@
             }
 
             equipes[indiceEquipeSegura].push(sobra);
-            equipes[indiceEquipeSegura].hasCar = equipeTemCarro(equipes[indiceEquipeSegura]);
         }
 
+        // Regra forte: sempre ter alguém de carro (troca integrantes entre equipes)
+        garantirCarroEmTodas(equipes);
         marcarPropriedadesEquipes(equipes);
 
-        // ALERTA: verifica se alguma equipe ficou sem veterano
-        const equipesSemVeterano = equipes.filter(eq =>
-            !eq.some(p => normalizarTexto(p.experiencia) === "VETERANO")
-        );
+        // ALERTAS
+        const alertas = [];
 
+        const equipesSemVeterano = equipes.filter(eq => !eq.some(p => ehVeterano(p)));
         if (equipesSemVeterano.length > 0) {
-            const nomes = equipesSemVeterano.map(eq => eq.map(p => p.nome).join(" + ")).join(", ");
-            setTimeout(() => {
-                alert("⚠️ ATENÇÃO: Equipes sem Veterano:\n\n" + nomes + "\n\nVerifique antes de salvar!");
-            }, 100);
+            alertas.push("⚠️ Equipes sem Veterano:\n" +
+                equipesSemVeterano.map(eq => eq.map(p => p.nome).join(" + ")).join("\n"));
+        }
+
+        const equipesSemCarro = equipes.filter(eq => !eq.hasCar);
+        if (equipesSemCarro.length > 0) {
+            alertas.push("🚗 Equipes SEM carro (não há carros suficientes ou há conflito de regras):\n" +
+                equipesSemCarro.map(eq => eq.map(p => p.nome).join(" + ")).join("\n"));
+        }
+
+        const equipesRepetidas = equipes.filter(eq => !eq.casalFixo && equipeRepetiuDupla(eq));
+        if (equipesRepetidas.length > 0) {
+            alertas.push("🔁 Duplas que repetem parceria recente (não havia alternativa respeitando as outras regras):\n" +
+                equipesRepetidas.map(eq => eq.map(p => p.nome).join(" + ")).join("\n"));
+        }
+
+        if (alertas.length) {
+            setTimeout(() => alert(alertas.join("\n\n") + "\n\nVerifique antes de salvar!"), 150);
         }
 
         if (equipes.length < 5) {
@@ -448,6 +538,8 @@
         const escala = HOSPITAIS.map(hospital => ({ hospital, equipes: [] }));
         const tabajara = escala.find(item => item.hospital.tabajara);
         const hospitaisNormais = escala.filter(item => !item.hospital.tabajara);
+        const hospitalSobra = hospitaisNormais.find(item => item.hospital.sobra);
+        const hospitaisOutros = hospitaisNormais.filter(item => !item.hospital.sobra);
 
         // 4. Tabajara: exatamente 1 dupla (mista, sem repetição de última visita)
         const prefTab = preferenciasManuais.find(p =>
@@ -498,76 +590,75 @@
                 }
             });
 
-        // 6. Distribui o restante com rotatividade
-        // Regra nova: privilegiar São Francisco para equipes sem carro e bias para receber mais equipes
-        equipes.forEach(equipe => {
-            let destinos = hospitaisNormais.filter(d =>
-                equipePodeIrParaHospital(equipe, d.hospital.nome)
-            );
+        // 6a. GARANTE pelo menos 1 equipe em cada hospital (comuns primeiro, São Francisco por último)
+        [...hospitaisOutros, hospitalSobra].forEach(dest => {
+            if (!dest || dest.equipes.length > 0 || !equipes.length) return;
 
-            if (!destinos.length) destinos = hospitaisNormais.slice();
-
-            const sfIndex = destinos.findIndex(d => normalizarTexto(d.hospital.nome) === normalizarTexto("Hospital São Francisco"));
-
-            if (!equipe.hasCar && sfIndex !== -1) {
-                // prioriza São Francisco
-                const sf = destinos.splice(sfIndex, 1)[0];
-                destinos.unshift(sf);
-            }
-
-            // diminui carga percebida do São Francisco para que ele seja escolhido com frequência
-            destinos.sort((a, b) => {
-                const aLoad = a.equipes.length - (normalizarTexto(a.hospital.nome) === normalizarTexto("Hospital São Francisco") ? 1.5 : 0);
-                const bLoad = b.equipes.length - (normalizarTexto(b.hospital.nome) === normalizarTexto("Hospital São Francisco") ? 1.5 : 0);
-                return aLoad - bLoad;
-            });
-
-            destinos[0].equipes.push(equipe);
+            let idx = equipes.findIndex(eq => equipePodeIrParaHospital(eq, dest.hospital.nome));
+            if (idx === -1) idx = 0;
+            dest.equipes.push(equipes.splice(idx, 1)[0]);
         });
+
+        // 6b. Distribui o restante: hospitais comuns até o limite, o que sobrar vai para o São Francisco
+        equipes.forEach(equipe => {
+            const candidatos = hospitaisOutros
+                .filter(d => d.equipes.length < MAX_EQUIPES_OUTROS)
+                .filter(d => equipePodeIrParaHospital(equipe, d.hospital.nome))
+                .sort((a, b) => a.equipes.length - b.equipes.length);
+
+            if (candidatos.length) candidatos[0].equipes.push(equipe);
+            else hospitalSobra.equipes.push(equipe);
+        });
+
+        // Confere se algum hospital ficou vazio
+        const vazios = escala.filter(item => item.equipes.length === 0).map(item => item.hospital.nome);
+        if (vazios.length) {
+            alert("⚠️ Hospitais sem equipe: " + vazios.join(", ") + ". Selecione mais voluntários.");
+        }
 
         escalaAtual = escala;
         mostrarEscala();
     }
 
     function mostrarEscala() {
-    const area = document.getElementById("equipes-hospitais");
-    area.innerHTML = ""; // limpa antes
+        const area = document.getElementById("equipes-hospitais");
+        area.innerHTML = "";
 
-    escalaAtual.forEach(h => {
-        const hospitalDiv = document.createElement("div");
-        hospitalDiv.className = `hospital-card card p-4 mb-4 ${h.hospital.cor} ${h.hospital.fundo}`;
+        escalaAtual.forEach(h => {
+            const hospitalDiv = document.createElement("div");
+            hospitalDiv.className = `hospital-card card p-4 mb-4 ${h.hospital.cor} ${h.hospital.fundo}`;
 
-        const header = document.createElement("h3");
-        header.className = "font-black text-xs uppercase mb-2 text-gray-800";
-        header.innerText = `${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}`;
-        hospitalDiv.appendChild(header);
+            const header = document.createElement("h3");
+            header.className = "font-black text-xs uppercase mb-2 text-gray-800";
+            header.innerText = `${h.hospital.nome} ${h.hospital.tabajara ? ' (DUPLA)' : ''}`;
+            hospitalDiv.appendChild(header);
 
-        h.equipes.forEach(eq => {
-            const eqDiv = document.createElement("div");
-            eqDiv.className = "bg-white/70 p-2 rounded-lg mb-2 text-sm";
+            h.equipes.forEach(eq => {
+                const eqDiv = document.createElement("div");
+                eqDiv.className = "bg-white/70 p-2 rounded-lg mb-2 text-sm";
 
-            // monta cada pessoa em uma linha real usando elementos (sem join problemático)
-            eq.forEach(p => {
-                const linha = document.createElement("div");
-                linha.innerHTML = `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${obterUltimaVisita(p.nome) || "Estreia"})</span>`;
-                eqDiv.appendChild(linha);
+                eq.forEach(p => {
+                    const linha = document.createElement("div");
+                    linha.innerHTML = `• <b>${p.nome}</b> <span class="text-[9px] text-gray-400">(Vindo de: ${obterUltimaVisita(p.nome) || "Estreia"})</span>`;
+                    eqDiv.appendChild(linha);
+                });
+
+                const repetiu = !eq.casalFixo && equipeRepetiuDupla(eq);
+                const meta = document.createElement("div");
+                meta.className = "text-[10px] text-gray-500 mt-1";
+                meta.innerText = `Carro: ${eq.hasCar ? 'Sim' : 'Não'}${eq.casalFixo ? ' · Casal fixo' : ''}${repetiu ? ' · ⚠️ repetiu dupla' : ''}`;
+                eqDiv.appendChild(meta);
+
+                hospitalDiv.appendChild(eqDiv);
             });
 
-            const meta = document.createElement("div");
-            meta.className = "text-[10px] text-gray-500 mt-1";
-            meta.innerText = `Has car: ${eq.hasCar ? 'Sim' : 'Não'} ${eq.casalFixo ? ' · Casal fixo' : ''}`;
-            eqDiv.appendChild(meta);
-
-            hospitalDiv.appendChild(eqDiv);
+            area.appendChild(hospitalDiv);
         });
 
-        area.appendChild(hospitalDiv);
-    });
-
-    document.getElementById("resultado").classList.remove("hidden");
-    document.getElementById("btn-salvar").disabled = false;
-    document.getElementById("msg-sucesso").classList.add("hidden");
-}
+        document.getElementById("resultado").classList.remove("hidden");
+        document.getElementById("btn-salvar").disabled = false;
+        document.getElementById("msg-sucesso").classList.add("hidden");
+    }
 
     async function salvarNoSupabase() {
         document.getElementById("loading").classList.add("active");
@@ -587,16 +678,12 @@
                 }));
             });
 
-            console.log("DEBUG inserts:", insertRows);
             if (!insertRows.length) {
                 alert("Erro: não há dados para salvar (inserts vazio). Gere a escala antes de salvar.");
                 return;
             }
 
-            // Executa o insert
-            const { data: insertResult, error: insertError } = await _supabase.from('historico_escalas').insert(insertRows);
-            console.log("DEBUG supabase response:", { insertResult, insertError });
-
+            const { error: insertError } = await _supabase.from('historico_escalas').insert(insertRows);
             if (insertError) throw insertError;
 
             document.getElementById("msg-sucesso").classList.remove("hidden");
@@ -624,7 +711,6 @@
         alert("Escala copiada!");
     }
 
-    // Inicia carregamento ao terminar de montar DOM
     window.addEventListener('DOMContentLoaded', carregarDados);
 </script>
 </body>
