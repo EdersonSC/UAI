@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VISITUAI - Frequência</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        body { background: #fffaf0; font-family: Arial, sans-serif; }
+        .card { background: white; border-radius: 20px; box-shadow: 0 5px 22px rgba(0,0,0,0.07); }
+        .tag { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 800; margin: 2px 2px 0 0; }
+        .tag-a { background: #fef9c3; color: #854d0e; }
+        .tag-b { background: #fed7aa; color: #9a3412; }
+        .tag-c { background: #fecaca; color: #991b1b; }
+        .chart-box { position: relative; height: 320px; }
+    </style>
+</head>
+<body class="pb-12">
+
+<header class="bg-gradient-to-r from-red-800 to-red-500 text-white text-center py-4 shadow-lg border-b-4 border-yellow-400">
+    <h1 class="font-black text-xl">VISITUAI · Frequência</h1>
+    <p class="text-[10px] text-yellow-100 font-bold uppercase tracking-widest mt-1">Painel de ausências e penalidades</p>
+</header>
+
+<main class="max-w-5xl mx-auto p-4 space-y-5">
+
+    <div id="status" class="card p-4 text-center text-sm font-bold text-gray-500 italic">⏳ Carregando...</div>
+
+    <!-- KPIs -->
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4 text-center">
+            <div class="text-[10px] font-black text-gray-500 uppercase">Voluntários ativos</div>
+            <div id="kpi-ativos" class="text-2xl font-black text-gray-800">-</div>
+        </div>
+        <div class="card p-4 text-center">
+            <div class="text-[10px] font-black text-gray-500 uppercase">Atividades no período</div>
+            <div id="kpi-atividades" class="text-2xl font-black text-gray-800">-</div>
+        </div>
+        <div class="card p-4 text-center">
+            <div class="text-[10px] font-black text-gray-500 uppercase">Frequência média</div>
+            <div id="kpi-media" class="text-2xl font-black text-emerald-700">-</div>
+        </div>
+        <div class="card p-4 text-center">
+            <div class="text-[10px] font-black text-gray-500 uppercase">Com penalidade</div>
+            <div id="kpi-penalidade" class="text-2xl font-black text-red-700">-</div>
+        </div>
+    </section>
+
+    <!-- Gráficos -->
+    <section class="card p-5">
+        <h2 class="font-black text-gray-800 mb-3">Frequência por voluntário (%)</h2>
+        <div class="chart-box"><canvas id="grafico-frequencia"></canvas></div>
+    </section>
+
+    <section class="grid md:grid-cols-2 gap-5">
+        <div class="card p-5">
+            <h2 class="font-black text-gray-800 mb-3">Presenças por atividade</h2>
+            <div class="chart-box"><canvas id="grafico-atividades"></canvas></div>
+        </div>
+        <div class="card p-5">
+            <h2 class="font-black text-gray-800 mb-3">Situação do grupo</h2>
+            <div class="chart-box"><canvas id="grafico-situacao"></canvas></div>
+        </div>
+    </section>
+
+    <!-- Tabela -->
+    <section class="card p-5">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h2 class="font-black text-gray-800">Detalhamento</h2>
+            <select id="filtro" onchange="renderTabela()" class="p-2 rounded-xl border border-gray-200 font-bold text-xs">
+                <option value="todos">Todos</option>
+                <option value="atencao">Em atenção</option>
+                <option value="penalidade">Com penalidade</option>
+            </select>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-[10px] uppercase text-gray-500 border-b">
+                        <th class="py-2 pr-3">Voluntário</th>
+                        <th class="py-2 pr-3">Frequência</th>
+                        <th class="py-2 pr-3">Presenças</th>
+                        <th class="py-2 pr-3">Ausências seguidas (atividades)</th>
+                        <th class="py-2 pr-3">Meses seguidos sem presença</th>
+                        <th class="py-2 pr-3">Última presença</th>
+                        <th class="py-2 pr-3">Penalidades</th>
+                    </tr>
+                </thead>
+                <tbody id="tabela-corpo"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <p class="text-[10px] text-gray-500 text-center">
+        Regras: (a) 5 ausências seguidas em atividades → 1 visita como acompanhante.
+        (b) 3 meses seguidos sem presença → 2 visitas seguidas como acompanhante.
+        (c) 6 meses seguidos sem presença → treinamento e reciclagem + 2 visitas como acompanhante.
+        Em todas as visitas não é permitido usar figurino, acessórios ou qualquer item que remeta à figura do palhaço.
+    </p>
+</main>
+
+<script>
+    const SUPABASE_URL = "https://xavoynadgllwtzounnfi.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhhdm95bmFkZ2xsd3R6b3VubmZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMjM1NDEsImV4cCI6MjA5MzU5OTU0MX0.-24uO3Qj82S8AeBDXmRbWNfXU35huFeBpbmFx9oo3AM";
+
+    // Primeira atividade que entra no cálculo
+    const DATA_INICIO = "2026-07-25";
+
+    // Limites das regras
+    const LIMITE_AUSENCIAS_ATIVIDADES = 5;   // regra a
+    const LIMITE_MESES_ATENCAO_B = 3;        // regra b
+    const LIMITE_MESES_TREINAMENTO_C = 6;    // regra c
+
+    let sb = null;
+    let linhas = [];
+    let atividades = [];
+
+    const normalizar = v => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+
+    function showStatus(msg, erro = false) {
+        const el = document.getElementById("status");
+        el.innerText = msg;
+        el.style.color = erro ? "#b91c1c" : "";
+    }
+
+    async function carregar() {
+        try {
+            sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+
+            const { data: voluntarios, error: e1 } = await sb.from("voluntarios").select("nome, ativo").eq("ativo", "SIM");
+            if (e1) throw e1;
+
+            const { data: historico, error: e2 } = await sb.from("historico_escalas").select("data, voluntario").range(0, 9999);
+            if (e2) throw e2;
+
+            calcular(voluntarios || [], (historico || []).filter(h => String(h.data) >= DATA_INICIO));
+            renderTudo();
+            showStatus("✅ Dados atualizados.");
+        } catch (e) {
+            console.error(e);
+            showStatus("❌ Erro ao carregar: " + (e.message || e), true);
+        }
+    }
+
+    function calcular(voluntarios, historico) {
+        // Atividades = datas distintas com registro
+        atividades = [...new Set(historico.map(h => String(h.data)))].sort();
+
+        // Meses com atividade
+        const meses = [...new Set(atividades.map(d => d.slice(0, 7)))].sort();
+
+        // Presenças: nome normalizado -> Set de datas
+        const presencas = new Map();
+        historico.forEach(h => {
+            const k = normalizar(h.voluntario);
+            if (!presencas.has(k)) presencas.set(k, new Set());
+            presencas.get(k).add(String(h.data));
+        });
+
+        linhas = voluntarios.map(v => {
+            const pres = presencas.get(normalizar(v.nome)) || new Set();
+            const arr = atividades.map(d => pres.has(d));
+            const presentes = arr.filter(Boolean).length;
+            const frequencia = atividades.length ? (presentes / atividades.length) * 100 : 0;
+
+            // Regra a: ausências seguidas em atividades (conta do fim para trás)
+            let ausSeguidas = 0;
+            for (let i = arr.length - 1; i >= 0 && !arr[i]; i--) ausSeguidas++;
+
+            // Regra b/c: meses seguidos sem nenhuma presença (conta do fim para trás)
+            const mesPresente = m => atividades.some((d, i) => d.startsWith(m) && arr[i]);
+            let mesesSem = 0;
+            for (let i = meses.length - 1; i >= 0 && !mesPresente(meses[i]); i--) mesesSem++;
+
+            const penalidades = [];
+            if (ausSeguidas >= LIMITE_AUSENCIAS_ATIVIDADES)
+                penalidades.push({ nivel: "a", texto: "1 visita como acompanhante" });
+            if (mesesSem >= LIMITE_MESES_TREINAMENTO_C)
+                penalidades.push({ nivel: "c", texto: "Treinamento e reciclagem + 2 visitas como acompanhante" });
+            else if (mesesSem >= LIMITE_MESES_ATENCAO_B)
+                penalidades.push({ nivel: "b", texto: "2 visitas seguidas como acompanhante" });
+
+            const ultima = atividades.filter((d, i) => arr[i]).pop() || "";
+
+            let situacao = "ok";
+            if (penalidades.length) situacao = "penalidade";
+            else if (ausSeguidas >= 3 || mesesSem >= 2) situacao = "atencao";
+
+            return { nome: v.nome, frequencia, presentes, ausSeguidas, mesesSem, ultima, penalidades, situacao };
+        }).sort((a, b) => b.frequencia - a.frequencia || a.nome.localeCompare(b.nome));
+    }
+
+    let graficos = {};
+
+    function renderTudo() {
+        // KPIs
+        const media = linhas.length ? linhas.reduce((s, l) => s + l.frequencia, 0) / linhas.length : 0;
+        document.getElementById("kpi-ativos").innerText = linhas.length;
+        document.getElementById("kpi-atividades").innerText = atividades.length;
+        document.getElementById("kpi-media").innerText = media.toFixed(0) + "%";
+        document.getElementById("kpi-penalidade").innerText = linhas.filter(l => l.situacao === "penalidade").length;
+
+        renderGraficos();
+        renderTabela();
+    }
+
+    function renderGraficos() {
+        Object.values(graficos).forEach(g => g.destroy());
+
+        const cor = l => l.situacao === "penalidade" ? "#dc2626" : l.situacao === "atencao" ? "#f59e0b" : "#10b981";
+
+        graficos.freq = new Chart(document.getElementById("grafico-frequencia"), {
+            type: "bar",
+            data: {
+                labels: linhas.map(l => l.nome),
+                datasets: [{ label: "Frequência (%)", data: linhas.map(l => l.frequencia.toFixed(1)), backgroundColor: linhas.map(cor) }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                indexAxis: "y",
+                scales: { x: { min: 0, max: 100 } },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        graficos.atv = new Chart(document.getElementById("grafico-atividades"), {
+            type: "line",
+            data: {
+                labels: atividades.map(d => d.split("-").reverse().join("/")),
+                datasets: [{
+                    label: "Presentes",
+                    data: atividades.map(d => linhas.filter(l => l.ultima && false).length || presentesNaData(d)),
+                    borderColor: "#b91c1c",
+                    backgroundColor: "rgba(185,28,28,0.15)",
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
+
+        const contagem = { ok: 0, atencao: 0, penalidade: 0 };
+        linhas.forEach(l => contagem[l.situacao]++);
+
+        graficos.sit = new Chart(document.getElementById("grafico-situacao"), {
+            type: "doughnut",
+            data: {
+                labels: ["Em dia", "Em atenção", "Com penalidade"],
+                datasets: [{ data: [contagem.ok, contagem.atencao, contagem.penalidade], backgroundColor: ["#10b981", "#f59e0b", "#dc2626"] }]
+            },
+            options: { maintainAspectRatio: false }
+        });
+    }
+
+    // Quantas pessoas ativas estiveram presentes numa data
+    function presentesNaData(data) {
+        return linhas.filter(l => l.ultima !== undefined && datasPresenca(l).has(data)).length;
+    }
+
+    const cacheDatas = new Map();
+    function datasPresenca(l) {
+        if (!cacheDatas.has(l.nome)) cacheDatas.set(l.nome, new Set(l.datas || []));
+        return cacheDatas.get(l.nome);
+    }
+
+    function renderTabela() {
+        const filtro = document.getElementById("filtro").value;
+        const lista = linhas.filter(l =>
+            filtro === "todos" ? true :
+            filtro === "atencao" ? l.situacao === "atencao" || l.situacao === "penalidade" :
+            l.situacao === "penalidade"
+        );
+
+        const corTag = { a: "tag-a", b: "tag-b", c: "tag-c" };
+        const corFreq = f => f >= 80 ? "text-emerald-700" : f >= 50 ? "text-amber-600" : "text-red-700";
+
+        document.getElementById("tabela-corpo").innerHTML = lista.map(l => `
+            <tr class="border-b border-gray-100 align-top">
+                <td class="py-2 pr-3 font-bold">${l.nome}</td>
+                <td class="py-2 pr-3 font-black ${corFreq(l.frequencia)}">${l.frequencia.toFixed(0)}%</td>
+                <td class="py-2 pr-3">${l.presentes}/${atividades.length}</td>
+                <td class="py-2 pr-3">${l.ausSeguidas}</td>
+                <td class="py-2 pr-3">${l.mesesSem}</td>
+                <td class="py-2 pr-3 text-xs">${l.ultima ? l.ultima.split("-").reverse().join("/") : "-"}</td>
+                <td class="py-2 pr-3">
+                    ${l.penalidades.length
+                        ? l.penalidades.map(p => `<span class="tag ${corTag[p.nivel]}">${p.nivel.toUpperCase()}: ${p.texto}</span>`).join("")
+                        : '<span class="text-xs text-gray-400">Nenhuma</span>'}
+                </td>
+            </tr>`).join("") || `<tr><td colspan="7" class="py-4 text-center text-gray-400">Nenhum registro para este filtro.</td></tr>`;
+    }
+
+    window.addEventListener("DOMContentLoaded", carregar);
+</script>
+</body>
+</html>
